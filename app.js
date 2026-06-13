@@ -26,6 +26,25 @@ const DB = {
 
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
+/* --------------------------- Per-user settings -------------------------- */
+const Settings = {
+  KEY:'wodbook.settings.v1',
+  _cache:null,
+  defaults:{ sound:true, vibrate:true, flash:true, leadIn:10, units:'lb', name:'' },
+  get(){
+    if(this._cache) return this._cache;
+    let s={};
+    try{ s = JSON.parse(localStorage.getItem(this.KEY)) || {}; }catch(e){}
+    this._cache = Object.assign({}, this.defaults, s);
+    return this._cache;
+  },
+  set(patch){
+    this._cache = Object.assign({}, this.get(), patch);
+    localStorage.setItem(this.KEY, JSON.stringify(this._cache));
+    return this._cache;
+  }
+};
+
 /* ------------------------------ Seed data ------------------------------- */
 const WOD_TYPES = [
   {k:'For Time', ph:'mm:ss', ic:'⏱'},
@@ -340,6 +359,7 @@ function liftDetail(name){
 
 function editLift(presetName){
   const liftOpts = COMMON_LIFTS.map(l=>`<option ${l===presetName?'selected':''}>${l}</option>`).join('');
+  const defUnit = Settings.get().units==='kg'?'kg':'lb';
   Sheet.open('Log Max', `
     ${presetName?`<label class="field"><span>Lift</span><input class="input" value="${esc(presetName)}" disabled></label>`:`
     <label class="field"><span>Lift</span><select class="input" id="l_name">${liftOpts}<option value="__custom">Custom…</option></select></label>
@@ -347,7 +367,7 @@ function editLift(presetName){
     <div class="row" style="gap:10px">
       <label class="field" style="flex:1"><span>Weight</span><input class="input" id="l_weight" type="number" inputmode="decimal" placeholder="0"></label>
       <label class="field" style="width:110px"><span>Unit</span>
-        <div class="seg" id="l_unit"><button data-u="lb" class="active">lb</button><button data-u="kg">kg</button></div></label>
+        <div class="seg" id="l_unit"><button data-u="lb" class="${defUnit==='lb'?'active':''}">lb</button><button data-u="kg" class="${defUnit==='kg'?'active':''}">kg</button></div></label>
     </div>
     <div class="stepper card"><span>Reps</span><div class="ctl"><button id="l_rm">−</button><span class="big" id="l_reps">1</span><button id="l_rp">＋</button></div></div>
     <div class="tag" id="l_e1rm" style="margin:8px 0"></div>
@@ -355,7 +375,7 @@ function editLift(presetName){
     <label class="field"><span>Notes</span><input class="input" id="l_notes" placeholder="Optional"></label>
     <button class="btn primary block" id="l_save">Save</button>
   `, ()=>{
-    let unit='lb', reps=1;
+    let unit=defUnit, reps=1;
     if(!presetName){
       $('l_name').onchange = ()=> $('l_customWrap').style.display = $('l_name').value==='__custom'?'block':'none';
     }
@@ -415,18 +435,57 @@ Screens.cal = function(){
 
 /* ---- MORE: progress + movements + backup ---- */
 Screens.more = function(){
+  const s = Settings.get();
   $('screen').innerHTML = `
     <div class="list">
+      <div class="item" id="m_settings"><div class="lead">⚙️</div><div class="grow"><div class="title">Settings</div><div class="sub">Sound, vibration, units, name</div></div><div class="trail tag">›</div></div>
       <div class="item" id="m_prog"><div class="lead">📈</div><div class="grow"><div class="title">Progress & Charts</div><div class="sub">Volume + lift maxes</div></div><div class="trail tag">›</div></div>
       <div class="item" id="m_mov"><div class="lead">📚</div><div class="grow"><div class="title">Movement Library</div><div class="sub">Reference & abbreviations</div></div><div class="trail tag">›</div></div>
+      <div class="item" id="m_import"><div class="lead">📥</div><div class="grow"><div class="title">Import from myWOD</div><div class="sub">Load a .mywod backup file</div></div><div class="trail tag">›</div></div>
       <div class="item" id="m_backup"><div class="lead">💾</div><div class="grow"><div class="title">Backup & Restore</div><div class="sub">Export / import your data</div></div><div class="trail tag">›</div></div>
     </div>
     <div class="sectiontitle">About</div>
-    <div class="card"><div class="tag">WODBook · installs to your home screen. Data is stored on this device only — use Backup to move it or keep it safe.</div></div>`;
+    <div class="card"><div class="tag">WODBook${s.name?(' · '+esc(s.name)):''} · installs to your home screen. Data is stored on this device only — use Backup to move it or keep it safe.</div></div>`;
+  $('m_settings').onclick = settingsSheet;
   $('m_prog').onclick = progressSheet;
   $('m_mov').onclick = movementsSheet;
+  $('m_import').onclick = importMywodSheet;
   $('m_backup').onclick = backupSheet;
 };
+
+function settingsSheet(){
+  const s = Settings.get();
+  const sw = (on)=>`switch ${on?'on':''}`;
+  Sheet.open('Settings', `
+    <label class="field"><span>Your name (shown in the app)</span>
+      <input class="input" id="st_name" value="${esc(s.name||'')}" placeholder="Optional"></label>
+
+    <div class="sectiontitle">Timer cues</div>
+    <div class="card">
+      <div class="toggle" style="margin-bottom:14px"><span>Sound</span><button class="${sw(s.sound!==false)}" id="st_sound"></button></div>
+      <div class="toggle" style="margin-bottom:14px"><span>Vibration</span><button class="${sw(s.vibrate!==false)}" id="st_vib"></button></div>
+      <div class="toggle"><span>Screen flash</span><button class="${sw(s.flash!==false)}" id="st_flash"></button></div>
+    </div>
+
+    <div class="sectiontitle">Defaults</div>
+    <div class="card">
+      <div class="stepper"><span>Lead-in countdown</span><div class="ctl"><button id="st_leadDn">−</button><span class="big" id="st_lead">${s.leadIn|0}s</span><button id="st_leadUp">＋</button></div></div>
+      <label class="field" style="margin-top:10px"><span>Default weight unit</span>
+        <div class="seg" id="st_units"><button data-u="lb" class="${s.units!=='kg'?'active':''}">lb</button><button data-u="kg" class="${s.units==='kg'?'active':''}">kg</button></div></label>
+    </div>
+
+    <button class="btn green block" id="st_test">▶ Test sound</button>
+  `, ()=>{
+    const toggle=(id,key)=>{ $(id).onclick=()=>{ const cur=Settings.get()[key]!==false; Settings.set({[key]:!cur}); $(id).classList.toggle('on',!cur); }; };
+    toggle('st_sound','sound'); toggle('st_vib','vibrate'); toggle('st_flash','flash');
+    $('st_name').oninput = ()=> Settings.set({name:$('st_name').value.trim()});
+    $('st_units').querySelectorAll('button').forEach(b=> b.onclick=()=>{ Settings.set({units:b.dataset.u}); $('st_units').querySelectorAll('button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); });
+    const refreshLead=()=> $('st_lead').textContent=(Settings.get().leadIn|0)+'s';
+    $('st_leadDn').onclick=()=>{ Settings.set({leadIn:Math.max(0,(Settings.get().leadIn|0)-5)}); refreshLead(); };
+    $('st_leadUp').onclick=()=>{ Settings.set({leadIn:(Settings.get().leadIn|0)+5}); refreshLead(); };
+    $('st_test').onclick=()=>{ Sound.arm(); Sound.go(); if(Settings.get().vibrate!==false) buzz(60); if(Settings.get().flash!==false) flash('#3ec46d',220); setTimeout(()=>Sound.stop(),1200); };
+  });
+}
 
 function progressSheet(){
   const wods = DB.data.wods, lifts = DB.data.lifts;
@@ -507,14 +566,250 @@ function backupSheet(){
   });
 }
 
+/* --------------------- myWOD (.mywod) import ----------------------------
+   A .mywod file is a SQLite 3 database. We parse it directly in the browser
+   with a tiny built-in SQLite reader (no external libraries) and map:
+     MyWODs           -> workout log entries
+     MovementSessions -> lift PRs (joined to Movement for the name)
+   ---------------------------------------------------------------------- */
+
+const MiniSQLite = (function(){
+  function readVarint(buf, pos){
+    let result = 0n;
+    for(let i=0;i<9;i++){
+      const b = buf[pos++];
+      if(i===8){ result = (result<<8n) | BigInt(b); return [result, pos]; }
+      result = (result<<7n) | BigInt(b & 0x7f);
+      if(!(b & 0x80)) return [result, pos];
+    }
+    return [result, pos];
+  }
+  function u16(b,p){ return (b[p]<<8)|b[p+1]; }
+  function u32(b,p){ return (b[p]*0x1000000)+((b[p+1]<<16)|(b[p+2]<<8)|b[p+3]); }
+
+  function parse(arrayBuffer){
+    const db = new Uint8Array(arrayBuffer);
+    if(String.fromCharCode(...db.slice(0,15)) !== 'SQLite format 3')
+      throw new Error('Not a SQLite/.mywod file');
+    let pageSize = u16(db,16); if(pageSize===1) pageSize = 65536;
+    const dec = new TextDecoder('utf-8');
+
+    function page(n){ return db.subarray((n-1)*pageSize, n*pageSize); }
+
+    function parseRecord(buf, pos){
+      const start = pos;
+      let hlen; [hlen,pos] = readVarint(buf,pos);
+      const headerEnd = start + Number(hlen);
+      const types = [];
+      while(pos < headerEnd){ let t; [t,pos]=readVarint(buf,pos); types.push(Number(t)); }
+      let body = headerEnd; const vals = [];
+      for(const t of types){
+        if(t===0) vals.push(null);
+        else if(t===1){ vals.push(signed(buf,body,1)); body+=1; }
+        else if(t===2){ vals.push(signed(buf,body,2)); body+=2; }
+        else if(t===3){ vals.push(signed(buf,body,3)); body+=3; }
+        else if(t===4){ vals.push(signed(buf,body,4)); body+=4; }
+        else if(t===5){ vals.push(signed(buf,body,6)); body+=6; }
+        else if(t===6){ vals.push(signed(buf,body,8)); body+=8; }
+        else if(t===7){ const dv=new DataView(buf.buffer, buf.byteOffset+body, 8); vals.push(dv.getFloat64(0,false)); body+=8; }
+        else if(t===8) vals.push(0);
+        else if(t===9) vals.push(1);
+        else if(t>=12 && t%2===0){ const n=(t-12)/2; vals.push(buf.subarray(body,body+n)); body+=n; }
+        else if(t>=13 && t%2===1){ const n=(t-13)/2; vals.push(dec.decode(buf.subarray(body,body+n))); body+=n; }
+        else vals.push(null);
+      }
+      return vals;
+    }
+    function signed(buf,pos,n){
+      let v=0; for(let i=0;i<n;i++) v=v*256+buf[pos+i];
+      const max=Math.pow(256,n); if(v>=max/2) v-=max; return v;
+    }
+
+    function walk(pageNum, out, limit){
+      const pg = page(pageNum);
+      const hdr = (pageNum===1)?100:0;
+      const ptype = pg[hdr];
+      const ncells = u16(pg,hdr+3);
+      const cps = hdr + ((ptype===5||ptype===2)?12:8);
+      if(ptype===5){
+        for(let i=0;i<ncells;i++){
+          const cp = u16(pg, cps+i*2);
+          const child = u32(pg, cp);
+          if(out.length<limit) walk(child,out,limit);
+        }
+        const right = u32(pg, hdr+8);
+        if(out.length<limit) walk(right,out,limit);
+        return;
+      }
+      if(ptype!==13) return;
+      for(let i=0;i<ncells && out.length<limit;i++){
+        const cp = u16(pg, cps+i*2);
+        let pos = cp;
+        let payloadLen; [payloadLen,pos] = readVarint(pg,pos);
+        let rowid; [rowid,pos] = readVarint(pg,pos);
+        // NOTE: overflow pages not handled; myWOD rows fit in a page.
+        try{ out.push(parseRecord(pg,pos)); }catch(e){}
+      }
+    }
+
+    // Read schema (root page 1) -> map table name to root page + column names.
+    const schema = []; walk(1, schema, 100000);
+    const tables = {};
+    for(const r of schema){
+      if(r[0]==='table'){
+        const cols = parseColumns(r[4]);
+        tables[r[1]] = { root: r[3], cols };
+      }
+    }
+    function rows(name){
+      const t = tables[name]; if(!t) return [];
+      const out = []; walk(t.root, out, 100000);
+      return out.map(r=>{ const o={}; t.cols.forEach((c,i)=> o[c]=r[i]); return o; });
+    }
+    return { tables, rows };
+  }
+
+  // Extract column names from a CREATE TABLE statement.
+  function parseColumns(sql){
+    const m = sql.match(/\(([\s\S]*)\)/); if(!m) return [];
+    const inner = m[1];
+    const parts = []; let depth=0, cur='';
+    for(const ch of inner){
+      if(ch==='(') depth++;
+      if(ch===')') depth--;
+      if(ch===',' && depth===0){ parts.push(cur); cur=''; } else cur+=ch;
+    }
+    if(cur.trim()) parts.push(cur);
+    const cols = [];
+    for(let p of parts){
+      p = p.trim();
+      const up = p.toUpperCase();
+      if(up.startsWith('PRIMARY KEY')||up.startsWith('FOREIGN KEY')||up.startsWith('UNIQUE')||up.startsWith('CHECK')||up.startsWith('CONSTRAINT')) continue;
+      const name = p.split(/\s+/)[0].replace(/["'`]/g,'');
+      if(name) cols.push(name);
+    }
+    return cols;
+  }
+
+  return { parse };
+})();
+
+// Map myWOD scoreType -> our WOD type.
+function mywodType(scoreType){
+  switch((scoreType||'').toLowerCase()){
+    case 'for time:': return 'For Time';
+    case 'for rounds:': return 'AMRAP';
+    case 'for repetitions:': return 'AMRAP';
+    case 'for load:': return 'Load';
+    default: return 'Other';
+  }
+}
+// unit code 0 = lb, 1 = kg (myWOD); others (5/7/8) are reps/dist/time -> skip as lifts.
+function mywodUnit(code){ return code===1 ? 'kg' : 'lb'; }
+
+function importMywodSheet(){
+  Sheet.open('Import from myWOD', `
+    <div class="card"><div class="tag">
+      Select your <b>.mywod</b> backup file (exported from the myWOD app).
+      Your workouts and lift maxes will be <b>added</b> to WODBook — your existing
+      data is kept. Duplicates from re-importing the same file are skipped.
+    </div></div>
+    <label class="field"><span>myWOD file</span>
+      <input type="file" id="mw_file" accept=".mywod,application/octet-stream,application/x-sqlite3" class="input"></label>
+    <div id="mw_status"></div>
+  `, ()=>{
+    $('mw_file').onchange = (e)=>{
+      const file = e.target.files[0]; if(!file) return;
+      $('mw_status').innerHTML = '<div class="tag">Reading…</div>';
+      const r = new FileReader();
+      r.onload = ()=>{
+        try{ runMywodImport(r.result); }
+        catch(err){ $('mw_status').innerHTML = `<div class="card" style="border-color:var(--danger)"><b>Couldn’t import</b><div class="tag">${esc(err.message||String(err))}</div></div>`; }
+      };
+      r.onerror = ()=>{ $('mw_status').innerHTML = '<div class="tag">Could not read file.</div>'; };
+      r.readAsArrayBuffer(file);
+    };
+  });
+}
+
+function runMywodImport(arrayBuffer){
+  const sdb = MiniSQLite.parse(arrayBuffer);
+
+  // Build a set of existing keys to avoid duplicates on re-import.
+  const existingWods = new Set(DB.data.wods.map(w=> (w.mywodKey||'') ));
+  const existingLifts = new Set(DB.data.lifts.map(l=> (l.mywodKey||'') ));
+
+  let addedW=0, addedL=0, skipped=0;
+
+  // ---- Workouts (MyWODs) ----
+  const myw = sdb.rows('MyWODs');
+  for(const r of myw){
+    if(r.deleted) continue;
+    const key = 'w:'+(r.primaryClientID||'')+':'+(r.primaryRecordID||'');
+    if(existingWods.has(key)){ skipped++; continue; }
+    const dateMs = r.date ? isoToTs(String(r.date).slice(0,10)) : Date.now();
+    DB.data.wods.push({
+      id: uid(), createdAt: Date.now(), mywodKey: key,
+      title: r.title || 'Workout',
+      type: mywodType(r.scoreType),
+      details: r.description || '',
+      result: r.score || '',
+      rxd: !!r.asPrescribed,
+      notes: (r.notes && r.notes!=='NA') ? r.notes : '',
+      date: dateMs,
+      benchmarkName: null
+    });
+    addedW++;
+  }
+
+  // ---- Lifts (MovementSessions joined to Movement) ----
+  const movements = sdb.rows('Movement');
+  const mvName = {};
+  for(const m of movements) mvName[(m.primaryClientID)+':'+(m.primaryRecordID)] = m.name;
+  const sessions = sdb.rows('MovementSessions');
+  for(const r of sessions){
+    if(r.deleted) continue;
+    // Only import weight-based sessions (unit code 0=lb or 1=kg).
+    const code = r.measurementAUnitsCode;
+    if(code!==0 && code!==1) continue;
+    const weight = Number(r.measurementAValue);
+    if(!weight || isNaN(weight)) continue;
+    const name = mvName[(r.foreignMovementClientID)+':'+(r.foreignMovementRecordID)];
+    if(!name) continue;
+    const key = 'l:'+(r.primaryClientID||'')+':'+(r.primaryRecordID||'');
+    if(existingLifts.has(key)){ skipped++; continue; }
+    const reps = parseInt(r.measurementB,10) || 1;
+    DB.data.lifts.push({
+      id: uid(), createdAt: Date.now(), mywodKey: key,
+      name, weight, unit: mywodUnit(code), reps,
+      date: r.date ? isoToTs(String(r.date).slice(0,10)) : Date.now(),
+      notes: (r.notes||'').trim()
+    });
+    addedL++;
+  }
+
+  DB.save();
+  $('mw_status').innerHTML = `
+    <div class="card" style="border-color:var(--green)">
+      <b>Import complete ✅</b>
+      <div class="tag" style="margin-top:6px">
+        ${addedW} workout${addedW===1?'':'s'} and ${addedL} lift entr${addedL===1?'y':'ies'} added.
+        ${skipped?`<br>${skipped} duplicate${skipped===1?'':'s'} skipped.`:''}
+      </div>
+    </div>
+    <button class="btn primary block" id="mw_done">Done</button>`;
+  $('mw_done').onclick = ()=>{ Sheet.close(); render(); toast('myWOD data imported'); };
+}
+
 /* ------------------------------ Timer ----------------------------------- */
 const Timer = {
   mode:'For Time', running:false, phase:'idle', elapsed:0, display:0, round:0,
-  splits:[], iv:null, lastBeep:-1,
-  cfg:{ amrap:12*60, emomIv:60, emomR:10, work:20, rest:10, tabataR:8 },
+  splits:[], iv:null, lastBeep:-1, lead:0,
+  // amrap/forTimeCap are durations in seconds; lead-in is in Settings.
+  cfg:{ amrap:12*60, forTimeCap:0, emomIv:60, emomR:10, work:20, rest:10, tabataR:8 },
 
   total(){ const c=this.cfg;
-    return this.mode==='For Time'?0
+    return this.mode==='For Time'?c.forTimeCap
       : this.mode==='AMRAP'?c.amrap
       : this.mode==='EMOM'?c.emomIv*c.emomR
       : (c.work+c.rest)*c.tabataR; },
@@ -522,35 +817,69 @@ const Timer = {
   start(){
     if(this.running) return;
     if(this.phase==='idle'||this.phase==='finished') this.reset(true);
-    Sound.unlock();
+    Sound.arm();                                   // arm audio on user gesture
     this.running=true;
-    this.phase = this.mode==='Tabata'?'work':'running';
-    this.round = (this.mode==='For Time'||this.mode==='AMRAP')?0:1;
-    this.tick0(); buzz(30);
+    this.lead = Math.max(0, Settings.get().leadIn|0);  // pre-workout countdown
+    if(this.lead > 0){
+      this.phase='lead';
+      this.display=this.lead;
+      this.cueCountdown();
+    } else {
+      this.beginWork();
+    }
     this.iv = setInterval(()=>this.tick(), 1000);
     Screens.timer();
   },
-  pause(){ this.running=false; clearInterval(this.iv); this.iv=null; Screens.timer(); },
-  reset(keep){ clearInterval(this.iv); this.iv=null; this.running=false; this.elapsed=0; this.round=0; this.splits=[]; this.lastBeep=-1; this.phase='idle';
+  beginWork(){
     const c=this.cfg;
-    this.display = this.mode==='AMRAP'?c.amrap : this.mode==='EMOM'?c.emomIv : this.mode==='Tabata'?c.work : 0;
-    if(!keep) {} Screens.timer(); },
+    this.phase = this.mode==='Tabata'?'work':'running';
+    this.round = (this.mode==='For Time'||this.mode==='AMRAP')?0:1;
+    this.tick0();
+    this.cueGo();                                  // audible GO for ALL modes
+  },
+  pause(){ this.running=false; clearInterval(this.iv); this.iv=null; Sound.stop(); Screens.timer(); },
+  reset(keep){ clearInterval(this.iv); this.iv=null; this.running=false; this.elapsed=0; this.round=0; this.splits=[]; this.lastBeep=-1; this.lead=0; this.phase='idle';
+    Sound.stop();
+    const c=this.cfg;
+    this.display = this.mode==='AMRAP'?c.amrap : this.mode==='EMOM'?c.emomIv : this.mode==='Tabata'?c.work : (c.forTimeCap||0);
+    Screens.timer(); },
   tick0(){ const c=this.cfg;
     this.display = this.mode==='For Time'?0 : this.mode==='AMRAP'?c.amrap : this.mode==='EMOM'?c.emomIv : c.work; },
-  // Combined cues: sound + distinct vibration + screen flash.
-  cueCountdown(){ Sound.beep(); buzz(35); flash('#f0a23a',150); },           // 3-2-1 ticks
-  cueRound(){ Sound.beep(); buzz([0,90,60,90]); flash('#3ec46d',260); },     // new round/interval
-  cueRest(){ Sound.beep(); buzz([0,60,40,60]); flash('#f0a23a',260); },      // work->rest
-  cueSplit(){ Sound.beep(); buzz(25); flash('#e87a4c',150); },               // manual split
-  cueFinish(){ Sound.finish(); buzz([0,120,80,120,80,200]); flash('#e87a4c',500);
-    setTimeout(()=>flash('#e87a4c',500),550); },
 
-  markRound(){ if(this.mode==='For Time'&&this.running){ this.splits.push(this.elapsed); this.cueSplit(); Screens.timer(); } },
+  // Combined cues honor per-user Settings (sound / vibration / flash).
+  _vib(p){ if(Settings.get().vibrate!==false) buzz(p); },
+  _flash(col,ms){ if(Settings.get().flash!==false) flash(col,ms); },
+  cueGo(){ Sound.go(); this._vib(60); this._flash('#3ec46d',220); },
+  cueCountdown(){ Sound.beep(); this._vib(35); this._flash('#f0a23a',150); },
+  cueRound(){ Sound.beep(); this._vib([0,90,60,90]); this._flash('#3ec46d',260); },
+  cueRest(){ Sound.beep(); this._vib([0,60,40,60]); this._flash('#f0a23a',260); },
+  cueSplit(){ Sound.beep(); this._vib(25); this._flash('#e87a4c',150); },
+  cueTick(){ Sound.beep(); this._vib(20); },        // every-minute heartbeat (For Time)
+  cueFinish(){ Sound.finish(); this._vib([0,120,80,120,80,200]); this._flash('#e87a4c',500);
+    setTimeout(()=>this._flash('#e87a4c',500),550); },
+
+  markRound(){ if(this.mode==='For Time'&&this.running&&this.phase!=='lead'){ this.splits.push(this.elapsed); this.cueSplit(); Screens.timer(); } },
 
   tick(){
+    // Lead-in countdown phase (3-2-1-GO) before the workout begins.
+    if(this.phase==='lead'){
+      this.lead--;
+      if(this.lead<=0){ this.beginWork(); }
+      else { this.display=this.lead; this.cueCountdown(); }
+      this.updateClock(); return;
+    }
+
     this.elapsed++;
     const c=this.cfg;
-    if(this.mode==='For Time'){ this.display=this.elapsed; }
+    if(this.mode==='For Time'){
+      this.display=this.elapsed;
+      if(this.elapsed%60===0) this.cueTick();        // audible minute marker
+      if(c.forTimeCap>0){
+        const r=c.forTimeCap-this.elapsed;
+        if(r<=3&&r>=1) this.cueCountdown();
+        if(this.elapsed>=c.forTimeCap) return this.finish();
+      }
+    }
     else if(this.mode==='AMRAP'){ const r=Math.max(0,c.amrap-this.elapsed); this.display=r;
       if(r<=3&&r>=1&&r!==this.lastBeep){ this.lastBeep=r; this.cueCountdown(); }
       if(r===0) return this.finish(); }
@@ -563,13 +892,16 @@ const Timer = {
       this.round=Math.min(c.tabataR, Math.floor((this.elapsed-1)/cyc)+1);
       if(into<c.work){ this.phase='work'; this.display=c.work-into; }
       else { this.phase='rest'; this.display=cyc-into; }
-      if(into===0){ this.cueRound(); }              // start of WORK
-      else if(into===c.work){ this.cueRest(); }     // start of REST
+      if(into===0){ this.cueRound(); }
+      else if(into===c.work){ this.cueRest(); }
       if(this.elapsed>=this.total()) return this.finish();
     }
     this.updateClock();
   },
-  finish(){ this.pause(); this.phase='finished'; this.cueFinish(); Screens.timer();
+  finish(){ this.running=false; clearInterval(this.iv); this.iv=null; this.phase='finished';
+    this.cueFinish();
+    setTimeout(()=>Sound.stop(), 2200);              // stop after the alarm plays out
+    Screens.timer();
     setTimeout(()=>{ if(confirm('Workout done — log this result?')){
       go('log'); editWod(null, {title:this.mode, type:this.resultType(), result:this.resultStr(), details:'', rxd:false, notes:'', date:isoToTs(todayISO())});
     }}, 400);
@@ -580,10 +912,11 @@ const Timer = {
       : this.mode==='EMOM'?`${c.emomR} rounds EMOM`
       : `${c.tabataR} × ${c.work}/${c.rest}s`; },
   resultType(){ return this.mode==='For Time'?'For Time':this.mode==='AMRAP'?'AMRAP':this.mode==='EMOM'?'EMOM':'Other'; },
-  updateClock(){ const el=$('tm_clock'); if(el){ el.textContent=mmss(this.display); el.className='clock '+(this.phase==='work'?'work':this.phase==='rest'?'rest':this.phase==='finished'?'done':''); }
+  updateClock(){ const el=$('tm_clock'); if(el){ el.textContent=mmss(this.display); el.className='clock '+(this.phase==='work'?'work':this.phase==='rest'?'rest':this.phase==='finished'?'done':this.phase==='lead'?'rest':''); }
     const ph=$('tm_phase'); if(ph) ph.textContent=this.phaseLabel();
     const rd=$('tm_round'); if(rd) rd.textContent=this.roundLabel(); },
-  phaseLabel(){ return this.phase==='work'?'WORK':this.phase==='rest'?'REST':this.phase==='finished'?('DONE — '+this.resultStr()):(this.mode==='For Time'&&this.running?'GO':''); },
+  phaseLabel(){ if(this.phase==='lead') return 'GET READY';
+    return this.phase==='work'?'WORK':this.phase==='rest'?'REST':this.phase==='finished'?('DONE — '+this.resultStr()):(this.running?'GO':''); },
   roundLabel(){ const c=this.cfg;
     if(this.mode==='EMOM') return `Round ${this.round} / ${c.emomR}`;
     if(this.mode==='Tabata') return `Round ${this.round} / ${c.tabataR}`;
@@ -595,9 +928,12 @@ Screens.timer = function(){
   const modes=['For Time','AMRAP','EMOM','Tabata'];
   const blurbs={'For Time':'Count up. Tap “Round” to record splits.','AMRAP':'Count down from a set duration.','EMOM':'Every minute on the minute for N rounds.','Tabata':'Work / rest intervals repeated for N rounds.'};
   let cfgHtml='';
+  if(t.mode==='For Time') cfgHtml = stepperRow('Time cap', c.forTimeCap>0?mmss(c.forTimeCap):'none', 'capDn','capUp');
   if(t.mode==='AMRAP') cfgHtml = stepperRow('Duration', mmss(c.amrap), 'amrapDn','amrapUp');
   if(t.mode==='EMOM') cfgHtml = stepperRow('Interval', c.emomIv+'s','emomIvDn','emomIvUp')+stepperRow('Rounds', c.emomR,'emomRDn','emomRUp');
   if(t.mode==='Tabata') cfgHtml = stepperRow('Work', c.work+'s','workDn','workUp')+stepperRow('Rest', c.rest+'s','restDn','restUp')+stepperRow('Rounds', c.tabataR,'tabRDn','tabRUp');
+  // Lead-in countdown is shared across modes (from Settings).
+  cfgHtml += stepperRow('Lead-in', (Settings.get().leadIn|0)+'s', 'leadDn','leadUp');
 
   let splitsHtml='';
   if(t.mode==='For Time'&&t.splits.length) splitsHtml = `<div class="splits">${t.splits.map((s,i)=>`<div class="s"><div class="k">R${i+1}</div><div class="v">${mmss(s)}</div></div>`).join('')}</div>`;
@@ -618,12 +954,16 @@ Screens.timer = function(){
 
   if(!t.running){
     $('tm_modes').querySelectorAll('button').forEach(b=> b.onclick=()=>{ t.mode=b.dataset.m; t.reset(true); });
+    bindStep('capDn',()=>c.forTimeCap=Math.max(0,c.forTimeCap-30)); bindStep('capUp',()=>c.forTimeCap+=30);
     bindStep('amrapDn',()=>c.amrap=Math.max(30,c.amrap-30)); bindStep('amrapUp',()=>c.amrap+=30);
     bindStep('emomIvDn',()=>c.emomIv=Math.max(10,c.emomIv-5)); bindStep('emomIvUp',()=>c.emomIv+=5);
     bindStep('emomRDn',()=>c.emomR=Math.max(1,c.emomR-1)); bindStep('emomRUp',()=>c.emomR++);
     bindStep('workDn',()=>c.work=Math.max(5,c.work-5)); bindStep('workUp',()=>c.work+=5);
     bindStep('restDn',()=>c.rest=Math.max(5,c.rest-5)); bindStep('restUp',()=>c.rest+=5);
     bindStep('tabRDn',()=>c.tabataR=Math.max(1,c.tabataR-1)); bindStep('tabRUp',()=>c.tabataR++);
+    // Lead-in persists to Settings.
+    bindStep('leadDn',()=>{ const s=Settings.get(); Settings.set({leadIn:Math.max(0,(s.leadIn|0)-5)}); });
+    bindStep('leadUp',()=>{ const s=Settings.get(); Settings.set({leadIn:(s.leadIn|0)+5}); });
   }
   $('tm_reset').onclick=()=>t.reset(true);
   $('tm_go').onclick=()=> t.running? t.pause() : t.start();
@@ -640,27 +980,26 @@ function stepperRow(label,val,dnId,upId){
    treats the page as MEDIA playback (music/video channel) which ignores the
    ringer switch. We also set the audio session to "playback" where supported. */
 const Sound = {
-  ctx:null, dest:null, keepEl:null, started:false,
+  ctx:null, dest:null, keepEl:null, silentEl:null, started:false, pending:[],
 
   // 1s of silence as a WAV data URI (used to hold an active media session).
   _silentWav:'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=',
 
-  unlock(){
-    // Create the audio graph on the first user gesture (Start tap).
+  enabled(){ return Settings.get().sound !== false; },
+
+  // Arm the audio session on a user gesture (Start). Keepalive runs ONLY
+  // while the timer is active, and stop() tears it down so nothing lingers.
+  arm(){
+    if(!this.enabled()) return;
     if(!this.ctx){
       try{ this.ctx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){}
     }
     if(!this.ctx) return;
     if(this.ctx.state==='suspended') this.ctx.resume();
+    try{ if(navigator.audioSession){ navigator.audioSession.type='playback'; } }catch(e){}
 
-    // Tell iOS we want media-style playback (plays on silent) when available.
-    try{
-      if(navigator.audioSession){ navigator.audioSession.type = 'playback'; }
-    }catch(e){}
-
-    // Pipe WebAudio into a MediaStream -> <audio> element so output rides the
-    // media channel instead of the (silenced) UI-sounds channel.
-    if(!this.started){
+    // Media-channel route (plays on silent): WebAudio -> MediaStream -> <audio>.
+    if(!this.dest){
       try{
         if(this.ctx.createMediaStreamDestination){
           this.dest = this.ctx.createMediaStreamDestination();
@@ -668,29 +1007,36 @@ const Sound = {
           this.keepEl.setAttribute('playsinline','');
           this.keepEl.loop = true;
           this.keepEl.srcObject = this.dest.stream;
-          this.keepEl.muted = false;
           this.keepEl.play().catch(()=>{});
         }
       }catch(e){ this.dest = null; }
+    } else if(this.keepEl){ this.keepEl.play().catch(()=>{}); }
 
-      // Backup keepalive: a looping silent <audio> keeps the media session alive
-      // so the first real beep isn't swallowed.
+    // Looping silent clip keeps the media session warm.
+    if(!this.silentEl){
       try{
-        const s = document.createElement('audio');
-        s.src = this._silentWav; s.loop = true; s.setAttribute('playsinline','');
-        s.volume = 0.01; s.play().catch(()=>{});
+        this.silentEl = document.createElement('audio');
+        this.silentEl.src = this._silentWav; this.silentEl.loop = true;
+        this.silentEl.setAttribute('playsinline',''); this.silentEl.volume = 0.01;
       }catch(e){}
-
-      this.started = true;
     }
+    if(this.silentEl) this.silentEl.play().catch(()=>{});
+    this.started = true;
+  },
+
+  // Stop ALL audio: cancel queued tones and pause the keepalive elements.
+  stop(){
+    this.pending.forEach(id=>clearTimeout(id)); this.pending = [];
+    try{ if(this.keepEl){ this.keepEl.pause(); } }catch(e){}
+    try{ if(this.silentEl){ this.silentEl.pause(); this.silentEl.currentTime = 0; } }catch(e){}
   },
 
   _out(){ return this.dest || (this.ctx ? this.ctx.destination : null); },
 
   tone(freq,dur,vol,type){
-    if(!this.ctx) return;
+    if(!this.enabled() || !this.ctx) return;
     const o=this.ctx.createOscillator(), g=this.ctx.createGain();
-    o.frequency.value=freq; o.type=type||'square';     // square = louder/punchier
+    o.frequency.value=freq; o.type=type||'square';
     o.connect(g); g.connect(this._out());
     const t=this.ctx.currentTime, v=vol==null?0.6:vol;
     g.gain.setValueAtTime(0.0001,t);
@@ -699,14 +1045,14 @@ const Sound = {
     o.start(t); o.stop(t+dur+0.02);
   },
 
-  beep(){ this.unlock(); this.tone(880,0.16,0.6); },
+  beep(){ this.tone(880,0.16,0.6); },
+  go(){ this.tone(1175,0.4,0.7); },     // distinct "GO" cue at start
 
-  // Louder, longer multi-tone finish alarm (3 rising bursts, repeated).
+  // Louder, longer multi-tone finish alarm (rising bursts, repeated).
   finish(){
-    this.unlock();
     const seq = [[660,0,0.18],[880,200,0.20],[1175,400,0.45],
                  [660,750,0.18],[880,950,0.20],[1175,1150,0.5]];
-    seq.forEach(([f,delay,d])=> setTimeout(()=>this.tone(f,d,0.75),delay));
+    seq.forEach(([f,delay,d])=> this.pending.push(setTimeout(()=>this.tone(f,d,0.85),delay)));
   }
 };
 
