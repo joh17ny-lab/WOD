@@ -537,30 +537,39 @@ const Timer = {
     if(!keep) {} Screens.timer(); },
   tick0(){ const c=this.cfg;
     this.display = this.mode==='For Time'?0 : this.mode==='AMRAP'?c.amrap : this.mode==='EMOM'?c.emomIv : c.work; },
-  markRound(){ if(this.mode==='For Time'&&this.running){ this.splits.push(this.elapsed); buzz(20); Sound.beep(); Screens.timer(); } },
+  // Combined cues: sound + distinct vibration + screen flash.
+  cueCountdown(){ Sound.beep(); buzz(35); flash('#f0a23a',150); },           // 3-2-1 ticks
+  cueRound(){ Sound.beep(); buzz([0,90,60,90]); flash('#3ec46d',260); },     // new round/interval
+  cueRest(){ Sound.beep(); buzz([0,60,40,60]); flash('#f0a23a',260); },      // work->rest
+  cueSplit(){ Sound.beep(); buzz(25); flash('#e87a4c',150); },               // manual split
+  cueFinish(){ Sound.finish(); buzz([0,120,80,120,80,200]); flash('#e87a4c',500);
+    setTimeout(()=>flash('#e87a4c',500),550); },
+
+  markRound(){ if(this.mode==='For Time'&&this.running){ this.splits.push(this.elapsed); this.cueSplit(); Screens.timer(); } },
 
   tick(){
     this.elapsed++;
     const c=this.cfg;
     if(this.mode==='For Time'){ this.display=this.elapsed; }
     else if(this.mode==='AMRAP'){ const r=Math.max(0,c.amrap-this.elapsed); this.display=r;
-      if(r<=3&&r>=1&&r!==this.lastBeep){ this.lastBeep=r; Sound.beep(); buzz(20); }
+      if(r<=3&&r>=1&&r!==this.lastBeep){ this.lastBeep=r; this.cueCountdown(); }
       if(r===0) return this.finish(); }
     else if(this.mode==='EMOM'){ const into=(this.elapsed-1)%c.emomIv; this.display=c.emomIv-into;
       this.round=Math.min(c.emomR, Math.floor((this.elapsed-1)/c.emomIv)+1);
-      if(into===0){ Sound.beep(); buzz(40); }
+      if(into===0){ this.cueRound(); }
       if(this.elapsed>=this.total()) return this.finish(); }
     else { // Tabata
       const cyc=c.work+c.rest, into=(this.elapsed-1)%cyc;
       this.round=Math.min(c.tabataR, Math.floor((this.elapsed-1)/cyc)+1);
       if(into<c.work){ this.phase='work'; this.display=c.work-into; }
       else { this.phase='rest'; this.display=cyc-into; }
-      if(into===0||into===c.work){ Sound.beep(); buzz(40); }
+      if(into===0){ this.cueRound(); }              // start of WORK
+      else if(into===c.work){ this.cueRest(); }     // start of REST
       if(this.elapsed>=this.total()) return this.finish();
     }
     this.updateClock();
   },
-  finish(){ this.pause(); this.phase='finished'; Sound.finish(); buzz([80,60,120]); Screens.timer();
+  finish(){ this.pause(); this.phase='finished'; this.cueFinish(); Screens.timer();
     setTimeout(()=>{ if(confirm('Workout done — log this result?')){
       go('log'); editWod(null, {title:this.mode, type:this.resultType(), result:this.resultStr(), details:'', rxd:false, notes:'', date:isoToTs(todayISO())});
     }}, 400);
@@ -625,17 +634,96 @@ function stepperRow(label,val,dnId,upId){
   return `<div class="stepper"><span>${label}</span><div class="ctl"><button id="${dnId}">−</button><span class="big">${val}</span><button id="${upId}">＋</button></div></div>`;
 }
 
-/* ------------------------------ Sound ----------------------------------- */
+/* ------------------------------ Sound -----------------------------------
+   To play on iOS even when the Ring/Silent switch is on SILENT, we route
+   WebAudio through an <audio> element that loops a tiny silent clip. iOS then
+   treats the page as MEDIA playback (music/video channel) which ignores the
+   ringer switch. We also set the audio session to "playback" where supported. */
 const Sound = {
-  ctx:null,
-  unlock(){ if(!this.ctx){ try{ this.ctx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
-    if(this.ctx && this.ctx.state==='suspended') this.ctx.resume(); },
-  tone(freq,dur,vol){ if(!this.ctx) return; const o=this.ctx.createOscillator(), g=this.ctx.createGain();
-    o.frequency.value=freq; o.type='sine'; g.gain.value=vol||0.2; o.connect(g); g.connect(this.ctx.destination);
-    const t=this.ctx.currentTime; o.start(t); g.gain.setValueAtTime(vol||0.2,t); g.gain.exponentialRampToValueAtTime(0.0001,t+dur); o.stop(t+dur); },
-  beep(){ this.unlock(); this.tone(880,0.15); },
-  finish(){ this.unlock(); this.tone(660,0.18); setTimeout(()=>this.tone(990,0.35),180); }
+  ctx:null, dest:null, keepEl:null, started:false,
+
+  // 1s of silence as a WAV data URI (used to hold an active media session).
+  _silentWav:'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=',
+
+  unlock(){
+    // Create the audio graph on the first user gesture (Start tap).
+    if(!this.ctx){
+      try{ this.ctx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){}
+    }
+    if(!this.ctx) return;
+    if(this.ctx.state==='suspended') this.ctx.resume();
+
+    // Tell iOS we want media-style playback (plays on silent) when available.
+    try{
+      if(navigator.audioSession){ navigator.audioSession.type = 'playback'; }
+    }catch(e){}
+
+    // Pipe WebAudio into a MediaStream -> <audio> element so output rides the
+    // media channel instead of the (silenced) UI-sounds channel.
+    if(!this.started){
+      try{
+        if(this.ctx.createMediaStreamDestination){
+          this.dest = this.ctx.createMediaStreamDestination();
+          this.keepEl = document.createElement('audio');
+          this.keepEl.setAttribute('playsinline','');
+          this.keepEl.loop = true;
+          this.keepEl.srcObject = this.dest.stream;
+          this.keepEl.muted = false;
+          this.keepEl.play().catch(()=>{});
+        }
+      }catch(e){ this.dest = null; }
+
+      // Backup keepalive: a looping silent <audio> keeps the media session alive
+      // so the first real beep isn't swallowed.
+      try{
+        const s = document.createElement('audio');
+        s.src = this._silentWav; s.loop = true; s.setAttribute('playsinline','');
+        s.volume = 0.01; s.play().catch(()=>{});
+      }catch(e){}
+
+      this.started = true;
+    }
+  },
+
+  _out(){ return this.dest || (this.ctx ? this.ctx.destination : null); },
+
+  tone(freq,dur,vol,type){
+    if(!this.ctx) return;
+    const o=this.ctx.createOscillator(), g=this.ctx.createGain();
+    o.frequency.value=freq; o.type=type||'square';     // square = louder/punchier
+    o.connect(g); g.connect(this._out());
+    const t=this.ctx.currentTime, v=vol==null?0.6:vol;
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(v,t+0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.start(t); o.stop(t+dur+0.02);
+  },
+
+  beep(){ this.unlock(); this.tone(880,0.16,0.6); },
+
+  // Louder, longer multi-tone finish alarm (3 rising bursts, repeated).
+  finish(){
+    this.unlock();
+    const seq = [[660,0,0.18],[880,200,0.20],[1175,400,0.45],
+                 [660,750,0.18],[880,950,0.20],[1175,1150,0.5]];
+    seq.forEach(([f,delay,d])=> setTimeout(()=>this.tone(f,d,0.75),delay));
+  }
 };
+
+/* Full-screen color flash visual cue (works even when sound is blocked). */
+function flash(color, ms){
+  let el = document.getElementById('flashLayer');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'flashLayer';
+    el.style.cssText = 'position:fixed;inset:0;z-index:200;pointer-events:none;opacity:0;transition:opacity .12s';
+    document.body.appendChild(el);
+  }
+  el.style.background = color;
+  el.style.opacity = '0.55';
+  clearTimeout(el._h);
+  el._h = setTimeout(()=>{ el.style.opacity = '0'; }, ms||220);
+}
 
 /* --------------------------- Interactions ------------------------------- */
 function bindLongPress(container, sel, onLong, onTap){
