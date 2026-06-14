@@ -341,6 +341,7 @@ function editWod(id, prefill){
     <label class="field"><span>Result (<span id="f_ph">${typePlaceholder(base.type)}</span>)</span><input class="input" id="f_result" value="${esc(base.result)}"></label>
     <div class="toggle card" style="margin-bottom:12px"><span>Performed as prescribed (RX)</span><button class="switch ${base.rxd?'on':''}" id="f_rx"></button></div>
     <label class="field"><span>Date</span><input class="input" type="date" id="f_date" value="${tsToISO(base.date)}"></label>
+    <label class="field"><span>Calories burned (optional)</span><input class="input" id="f_kcal" type="number" inputmode="numeric" value="${base.kcalBurned!=null?base.kcalBurned:''}" placeholder="e.g. 350"></label>
     <label class="field"><span>Notes</span><textarea class="input" id="f_notes" placeholder="How did it feel?">${esc(base.notes)}</textarea></label>
     <button class="btn primary block" id="f_save">${id?'Save Changes':'Save Workout'}</button>
     ${id?'<button class="btn danger block" id="f_del" style="margin-top:10px">Delete</button>':''}
@@ -355,9 +356,11 @@ function editWod(id, prefill){
     $('f_save').onclick = ()=>{
       const title = $('f_title').value.trim();
       if(!title){ toast('Title required'); return; }
+      const kb = parseFloat($('f_kcal').value);
       const rec = {
         title, type, details:$('f_details').value.trim(), result:$('f_result').value.trim(),
         rxd, notes:$('f_notes').value.trim(), date:isoToTs($('f_date').value||todayISO()),
+        kcalBurned: isNaN(kb)?0:kb,
         benchmarkName: base.benchmarkName||null
       };
       if(id) DB.updateWod(id, rec); else DB.addWod(rec);
@@ -429,7 +432,7 @@ function wodDetail(id){
     Sheet.open(w.title, `
       <div class="card"><h3>Workout</h3>
         ${w.details?`<div style="white-space:pre-wrap">${esc(w.details)}</div>`:'<div class="tag">No description.</div>'}
-        <div class="tag" style="margin-top:8px">Type: ${esc(w.type)}</div></div>
+        <div class="tag" style="margin-top:8px">Type: ${esc(w.type)}${w.kcalBurned?` · 🔥 ${Math.round(w.kcalBurned)} kcal`:''}</div></div>
       ${best?`<div class="card"><h3>🏆 Personal Best</h3>
         <div class="big" style="font-size:22px">${esc(best.result)}</div>
         <div class="tag">${fmtDateFull(best.date)} ${best.rxd?'· RX':''}</div></div>`:''}
@@ -554,8 +557,17 @@ function liftDetail(name){
 }
 
 function editLift(presetName){
-  const liftOpts = COMMON_LIFTS.map(l=>`<option ${l===presetName?'selected':''}>${l}</option>`).join('');
   const defUnit = Settings.get().units==='kg'?'kg':'lb';
+  // Build the lift picker: Common lifts + the full Movement Library
+  // (weightlifting first, then everything else), de-duplicated.
+  const commonSet = new Set(COMMON_LIFTS.map(x=>x.toLowerCase()));
+  const libWeight = MOVEMENTS.filter(m=>m.c==='Weightlifting' && !commonSet.has(m.n.toLowerCase()));
+  const libOther  = MOVEMENTS.filter(m=>m.c!=='Weightlifting' && !commonSet.has(m.n.toLowerCase()));
+  const opt = (n)=> `<option ${n===presetName?'selected':''}>${esc(n)}</option>`;
+  const liftOpts = `
+    <optgroup label="Common Lifts">${COMMON_LIFTS.map(opt).join('')}</optgroup>
+    ${libWeight.length?`<optgroup label="Library · Weightlifting">${libWeight.map(m=>opt(m.n)).join('')}</optgroup>`:''}
+    ${libOther.length?`<optgroup label="Library · Other Movements">${libOther.map(m=>opt(m.n)).join('')}</optgroup>`:''}`;
   Sheet.open('Log Max', `
     ${presetName?`<label class="field"><span>Lift</span><input class="input" value="${esc(presetName)}" disabled></label>`:`
     <label class="field"><span>Lift</span><select class="input" id="l_name">${liftOpts}<option value="__custom">Custom…</option></select></label>
@@ -703,7 +715,8 @@ Screens.food = function(){
         ${macro('c','Carbs',tot.c,s.carbsGoal,'g')}
         ${macro('f','Fat',tot.f,s.fatGoal,'g')}
       </div>
-    </div>`;
+    </div>
+    <div class="tag" style="margin-top:10px;text-align:center">${Math.round(tot.kcal)} / ${s.kcalGoal} kcal today</div>`;
 
   let mealsHtml = '';
   MEALS.forEach(meal=>{
@@ -1285,9 +1298,15 @@ function movementsSheet(){
         const items = MOVEMENTS.filter(m=>m.c===c && (!f || (m.n+m.a).toLowerCase().includes(f)));
         if(!items.length) return '';
         return `<div class="sectiontitle">${esc(c)}</div>` + items.map(m=>`
-          <div class="card" style="padding:12px"><div class="row between"><span class="big">${esc(m.n)}</span><span class="pill ghost">${esc(m.a)}</span></div>
-          <div class="tag" style="margin-top:4px">${esc(m.s)}</div></div>`).join('');
+          <div class="card" style="padding:12px">
+            <div class="row between"><span class="big">${esc(m.n)}</span><span class="pill ghost">${esc(m.a)}</span></div>
+            <div class="tag" style="margin:4px 0 8px">${esc(m.s)}</div>
+            <button class="btn sm" data-track="${esc(m.n)}">🏋️ Track as lift</button>
+          </div>`).join('');
       }).join('');
+      $('mv_list').querySelectorAll('[data-track]').forEach(b=> onTapSafe(b, ()=>{
+        Sheet.close(); editLift(b.dataset.track);
+      }));
     }
     paint('');
     $('mv_search').oninput = (e)=>paint(e.target.value);
@@ -1741,13 +1760,40 @@ Screens.timer = function(){
   const t=Timer, c=t.cfg;
   const modes=['For Time','AMRAP','EMOM','Tabata'];
   const blurbs={'For Time':'Count up. Tap “Round” to record splits.','AMRAP':'Count down from a set duration.','EMOM':'Every minute on the minute for N rounds.','Tabata':'Work / rest intervals repeated for N rounds.'};
+  // Quick presets per mode — one tap to configure a common workout.
+  const presets = {
+    'For Time': [['No cap',0],['10:00',600],['15:00',900],['20:00',1200]],
+    'AMRAP':    [['7:00',420],['12:00',720],['15:00',900],['20:00',1200]],
+    'EMOM':     [['10×1:00',{iv:60,r:10}],['12×1:00',{iv:60,r:12}],['20×1:00',{iv:60,r:20}],['10×0:90',{iv:90,r:10}]],
+    'Tabata':   [['Classic 20/10×8',{w:20,r:10,n:8}],['30/15×8',{w:30,r:15,n:8}],['40/20×6',{w:40,r:20,n:6}]]
+  };
+  const chipRow = (arr, attr)=> `<div class="seg" style="flex-wrap:wrap;gap:6px;margin-bottom:10px">`+
+    arr.map((p,i)=>`<button data-${attr}="${i}" style="flex:0 0 auto">${esc(p[0])}</button>`).join('')+`</div>`;
+
   let cfgHtml='';
-  if(t.mode==='For Time') cfgHtml = stepperRow('Time cap', c.forTimeCap>0?mmss(c.forTimeCap):'none', 'capDn','capUp');
-  if(t.mode==='AMRAP') cfgHtml = stepperRow('Duration', mmss(c.amrap), 'amrapDn','amrapUp');
-  if(t.mode==='EMOM') cfgHtml = stepperRow('Interval', c.emomIv+'s','emomIvDn','emomIvUp')+stepperRow('Rounds', c.emomR,'emomRDn','emomRUp');
-  if(t.mode==='Tabata') cfgHtml = stepperRow('Work', c.work+'s','workDn','workUp')+stepperRow('Rest', c.rest+'s','restDn','restUp')+stepperRow('Rounds', c.tabataR,'tabRDn','tabRUp');
-  // Lead-in countdown is shared across modes (from Settings).
-  cfgHtml += stepperRow('Lead-in', (Settings.get().leadIn|0)+'s', 'leadDn','leadUp');
+  if(t.mode==='For Time'){
+    cfgHtml = `<div class="tag" style="margin-bottom:6px">Time cap (optional)</div>` + chipRow(presets['For Time'],'fc') +
+      timeInputRow('Time cap (mm:ss)', 'cfg_cap', c.forTimeCap);
+  }
+  if(t.mode==='AMRAP'){
+    cfgHtml = `<div class="tag" style="margin-bottom:6px">Quick durations</div>` + chipRow(presets['AMRAP'],'ap') +
+      timeInputRow('Duration (mm:ss)', 'cfg_amrap', c.amrap);
+  }
+  if(t.mode==='EMOM'){
+    cfgHtml = chipRow(presets['EMOM'],'em') +
+      timeInputRow('Interval (mm:ss)', 'cfg_emomIv', c.emomIv) +
+      numInputRow('Rounds', 'cfg_emomR', c.emomR);
+  }
+  if(t.mode==='Tabata'){
+    cfgHtml = chipRow(presets['Tabata'],'tb') +
+      `<div class="row" style="gap:8px">
+        <div style="flex:1">${numInputRow('Work (s)','cfg_work',c.work)}</div>
+        <div style="flex:1">${numInputRow('Rest (s)','cfg_rest',c.rest)}</div>
+        <div style="flex:1">${numInputRow('Rounds','cfg_tabR',c.tabataR)}</div>
+      </div>`;
+  }
+  // Lead-in countdown (shared) as a direct numeric input.
+  cfgHtml += numInputRow('Lead-in (s)', 'cfg_lead', Settings.get().leadIn|0);
 
   let splitsHtml='';
   if(t.mode==='For Time'&&t.splits.length) splitsHtml = `<div class="splits">${t.splits.map((s,i)=>`<div class="s"><div class="k">R${i+1}</div><div class="v">${mmss(s)}</div></div>`).join('')}</div>`;
@@ -1786,25 +1832,52 @@ Screens.timer = function(){
 
   // Setup handlers only apply when the setup block is present (portrait, idle).
   if(!t.running && !landscape){
-    $('tm_modes').querySelectorAll('button').forEach(b=> b.onclick=()=>{ t.mode=b.dataset.m; t.reset(true); });
-    bindStep('capDn',()=>c.forTimeCap=Math.max(0,c.forTimeCap-30)); bindStep('capUp',()=>c.forTimeCap+=30);
-    bindStep('amrapDn',()=>c.amrap=Math.max(30,c.amrap-30)); bindStep('amrapUp',()=>c.amrap+=30);
-    bindStep('emomIvDn',()=>c.emomIv=Math.max(10,c.emomIv-5)); bindStep('emomIvUp',()=>c.emomIv+=5);
-    bindStep('emomRDn',()=>c.emomR=Math.max(1,c.emomR-1)); bindStep('emomRUp',()=>c.emomR++);
-    bindStep('workDn',()=>c.work=Math.max(5,c.work-5)); bindStep('workUp',()=>c.work+=5);
-    bindStep('restDn',()=>c.rest=Math.max(5,c.rest-5)); bindStep('restUp',()=>c.rest+=5);
-    bindStep('tabRDn',()=>c.tabataR=Math.max(1,c.tabataR-1)); bindStep('tabRUp',()=>c.tabataR++);
-    // Lead-in persists to Settings.
-    bindStep('leadDn',()=>{ const s=Settings.get(); Settings.set({leadIn:Math.max(0,(s.leadIn|0)-5)}); });
-    bindStep('leadUp',()=>{ const s=Settings.get(); Settings.set({leadIn:(s.leadIn|0)+5}); });
+    $('tm_modes').querySelectorAll('button').forEach(b=> onTapSafe(b, ()=>{ t.mode=b.dataset.m; t.reset(true); }));
+
+    // Direct time/number inputs commit on change and refresh the display.
+    bindTimeInput('cfg_cap',   (v)=>{ c.forTimeCap=v; t.reset(true); });
+    bindTimeInput('cfg_amrap', (v)=>{ c.amrap=Math.max(10,v); t.reset(true); });
+    bindTimeInput('cfg_emomIv',(v)=>{ c.emomIv=Math.max(5,v); t.reset(true); });
+    bindNumInput('cfg_emomR',  (v)=>{ c.emomR=Math.max(1,v); t.reset(true); });
+    bindNumInput('cfg_work',   (v)=>{ c.work=Math.max(5,v); t.reset(true); });
+    bindNumInput('cfg_rest',   (v)=>{ c.rest=Math.max(0,v); t.reset(true); });
+    bindNumInput('cfg_tabR',   (v)=>{ c.tabataR=Math.max(1,v); t.reset(true); });
+    bindNumInput('cfg_lead',   (v)=>{ Settings.set({leadIn:Math.max(0,v)}); });
+
+    // Preset chips (one tap to configure).
+    $('screen').querySelectorAll('[data-fc]').forEach(b=> onTapSafe(b, ()=>{ c.forTimeCap=presets['For Time'][+b.dataset.fc][1]; t.reset(true); }));
+    $('screen').querySelectorAll('[data-ap]').forEach(b=> onTapSafe(b, ()=>{ c.amrap=presets['AMRAP'][+b.dataset.ap][1]; t.reset(true); }));
+    $('screen').querySelectorAll('[data-em]').forEach(b=> onTapSafe(b, ()=>{ const p=presets['EMOM'][+b.dataset.em][1]; c.emomIv=p.iv; c.emomR=p.r; t.reset(true); }));
+    $('screen').querySelectorAll('[data-tb]').forEach(b=> onTapSafe(b, ()=>{ const p=presets['Tabata'][+b.dataset.tb][1]; c.work=p.w; c.rest=p.r; c.tabataR=p.n; t.reset(true); }));
   }
   $('tm_reset').onclick=()=>t.reset(true);
   $('tm_go').onclick=()=> t.running? t.pause() : t.start();
   if($('tm_round_btn')) $('tm_round_btn').onclick=()=>t.markRound();
-  function bindStep(id,fn){ const el=$(id); if(el) el.onclick=()=>{ fn(); t.reset(true); }; }
 };
-function stepperRow(label,val,dnId,upId){
-  return `<div class="stepper"><span>${label}</span><div class="ctl"><button id="${dnId}">−</button><span class="big">${val}</span><button id="${upId}">＋</button></div></div>`;
+
+/* Direct-entry config rows (replace slow +/− steppers). */
+function timeInputRow(label, id, seconds){
+  return `<label class="field"><span>${label}</span>
+    <input class="input timefield" id="${id}" type="text" inputmode="numeric" placeholder="mm:ss" value="${seconds>0?mmss(seconds):''}"></label>`;
+}
+function numInputRow(label, id, val){
+  return `<label class="field"><span>${label}</span>
+    <input class="input" id="${id}" type="number" inputmode="numeric" value="${val}"></label>`;
+}
+// Parse "mm:ss" or a plain number (treated as minutes if no colon).
+function parseDur(str){
+  if(str==null) return 0;
+  const s=String(str).trim(); if(!s) return 0;
+  if(s.indexOf(':')>=0){ const [m,sec]=s.split(':'); return (parseInt(m,10)||0)*60 + (parseInt(sec,10)||0); }
+  const n=parseFloat(s); return isNaN(n)?0:Math.round(n*60);   // bare number = minutes
+}
+function bindTimeInput(id, commit){
+  const el=$(id); if(!el) return;
+  el.onchange = ()=> commit(parseDur(el.value));
+}
+function bindNumInput(id, commit){
+  const el=$(id); if(!el) return;
+  el.onchange = ()=> commit(Math.round(parseFloat(el.value)||0));
 }
 
 /* ------------------------------ Sound -----------------------------------
