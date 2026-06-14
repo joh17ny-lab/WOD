@@ -82,7 +82,8 @@
   .list .item .trail{text-align:right;flex:none}
 
   label.field{display:block;margin-bottom:12px}
-  label.field span{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;font-weight:600}
+  label.field > span{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;font-weight:600}
+  label.field > span span{display:inline;font-size:inherit;color:inherit;margin:0}
   .input,select.input,textarea.input{
     width:100%;background:var(--bg2);border:1px solid var(--line);border-radius:10px;
     color:var(--txt);padding:11px 12px;font-size:16px
@@ -163,19 +164,22 @@
     .cal-cell{font-size:13px}
   }
 
-  /* Timer: dedicated wide layout in landscape with a huge clock. */
+  /* Timer: landscape shows ONLY the big clock + controls (settings hidden). */
   body.timer-active.landscape main{padding-bottom:12px}
   @media (orientation: landscape) and (max-height: 600px){
-    .tm-land{display:flex;gap:18px;align-items:stretch;max-width:100%!important}
-    .tm-land .tm-left{flex:1.4;display:flex;flex-direction:column;justify-content:center;min-width:0}
-    .tm-land .tm-right{flex:1;display:flex;flex-direction:column;justify-content:center;gap:10px;min-width:0}
-    .tm-land .clock{font-size:23vw;line-height:.95;margin:0}
-    .tm-land .phase{font-size:18px}
-    .tm-land .timer-controls{margin-top:6px}
-    .tm-land .timer-controls .btn{padding:14px}
+    /* Single centered column — config/setup is omitted from the DOM in JS. */
+    .tm-land-clock{display:flex;flex-direction:column;justify-content:center;align-items:center;
+      height:calc(100dvh - 60px);max-width:100%!important;gap:8px}
+    .tm-summary{font-size:15px;font-weight:800;letter-spacing:1.5px;color:var(--accent);text-transform:uppercase}
+    .tm-land-clock .clock{font-size:32vw;line-height:.92;margin:0}
+    .tm-land-clock .phase{font-size:20px}
+    .tm-land-clock #tm_round{font-size:18px}
+    .tm-land-clock .timer-controls{margin-top:10px;width:min(560px,90vw)}
+    .tm-land-clock .timer-controls .btn{padding:14px}
     /* Hide tab bar while a landscape timer is running to maximize the clock. */
     body.timer-running.landscape nav.tabbar{display:none}
     body.timer-running.landscape main{padding-bottom:14px}
+    body.timer-running.landscape .tm-land-clock{height:calc(100dvh - 24px)}
   }
 </style>
 </head>

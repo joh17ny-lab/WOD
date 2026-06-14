@@ -1025,6 +1025,14 @@ const Timer = {
     if(this.mode==='EMOM') return `Round ${this.round} / ${c.emomR}`;
     if(this.mode==='Tabata') return `Round ${this.round} / ${c.tabataR}`;
     return ''; },
+  // One-line summary of the current mode + settings (shown above landscape clock).
+  modeSummary(){ const c=this.cfg;
+    const lead = (Settings.get().leadIn|0); const leadTxt = lead>0 ? ` · ${lead}s lead-in` : '';
+    if(this.mode==='For Time') return `FOR TIME${c.forTimeCap>0?` · cap ${mmss(c.forTimeCap)}`:''}${leadTxt}`;
+    if(this.mode==='AMRAP') return `AMRAP · ${mmss(c.amrap)}${leadTxt}`;
+    if(this.mode==='EMOM') return `EMOM · ${c.emomIv}s × ${c.emomR}${leadTxt}`;
+    return `TABATA · ${c.work}/${c.rest}s × ${c.tabataR}${leadTxt}`;
+  },
 };
 
 Screens.timer = function(){
@@ -1066,17 +1074,16 @@ Screens.timer = function(){
     </div>`;
 
   if(landscape){
-    // Two columns: setup/round info on the left, giant clock + controls on the right.
-    $('screen').innerHTML = `
-      <div class="tm-land">
-        <div class="tm-right">${clockBlock}</div>
-        <div class="tm-left">${setupBlock}</div>
-      </div>`;
+    // Landscape: hide all setup/config — show only a mode summary + the big
+    // clock + controls, centered, easy to read from across the gym.
+    const summary = `<div class="tm-summary">${esc(t.modeSummary())}</div>`;
+    $('screen').innerHTML = `<div class="tm-land tm-land-clock">${summary}${clockBlock}</div>`;
   } else {
     $('screen').innerHTML = setupBlock + clockBlock;
   }
 
-  if(!t.running){
+  // Setup handlers only apply when the setup block is present (portrait, idle).
+  if(!t.running && !landscape){
     $('tm_modes').querySelectorAll('button').forEach(b=> b.onclick=()=>{ t.mode=b.dataset.m; t.reset(true); });
     bindStep('capDn',()=>c.forTimeCap=Math.max(0,c.forTimeCap-30)); bindStep('capUp',()=>c.forTimeCap+=30);
     bindStep('amrapDn',()=>c.amrap=Math.max(30,c.amrap-30)); bindStep('amrapUp',()=>c.amrap+=30);
