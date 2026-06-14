@@ -143,6 +143,22 @@
   .stepper{display:flex;align-items:center;justify-content:space-between;padding:8px 0}
   .stepper .ctl{display:flex;align-items:center;gap:12px}
   .stepper .ctl button{width:34px;height:34px;border-radius:9px;border:1px solid var(--line);background:var(--card2);color:var(--txt);font-size:20px}
+
+  /* ---------------------- Scroll wheel picker ---------------------- */
+  .wheels{display:flex;align-items:stretch;justify-content:center;gap:4px;position:relative;
+    background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:6px 4px}
+  .wheel-col{display:flex;flex-direction:column;align-items:center;flex:1;min-width:0}
+  .wheel-col .wlabel{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}
+  .wheel{--ih:40px;height:calc(var(--ih)*5);overflow-y:scroll;scroll-snap-type:y mandatory;
+    -webkit-overflow-scrolling:touch;width:100%;position:relative;scrollbar-width:none;mask-image:linear-gradient(to bottom,transparent,#000 22%,#000 78%,transparent)}
+  .wheel::-webkit-scrollbar{display:none}
+  .wheel .pad{height:calc(var(--ih)*2)}
+  .wheel .opt{height:var(--ih);line-height:var(--ih);text-align:center;scroll-snap-align:center;
+    font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--muted);transition:color .12s,transform .12s}
+  .wheel .opt.sel{color:var(--txt);transform:scale(1.05)}
+  .wheels .sep{align-self:center;font-size:24px;font-weight:800;color:var(--txt);padding:0 2px}
+  .wheels .hl{position:absolute;left:6px;right:6px;top:50%;transform:translateY(-50%);height:40px;
+    border-top:1px solid var(--line);border-bottom:1px solid var(--line);pointer-events:none;border-radius:8px;background:rgba(232,122,76,.08)}
   .splits{display:flex;gap:8px;overflow:auto;padding:6px 0}
   .splits .s{background:var(--card2);border-radius:9px;padding:6px 10px;text-align:center;flex:none}
   .splits .s .k{font-size:10px;color:var(--muted)} .splits .s .v{font-weight:700;font-variant-numeric:tabular-nums}

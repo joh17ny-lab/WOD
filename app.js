@@ -1773,27 +1773,29 @@ Screens.timer = function(){
   let cfgHtml='';
   if(t.mode==='For Time'){
     cfgHtml = `<div class="tag" style="margin-bottom:6px">Time cap (optional)</div>` + chipRow(presets['For Time'],'fc') +
-      timeInputRow('Time cap (mm:ss)', 'cfg_cap', c.forTimeCap);
+      timeWheel('cfg_cap', c.forTimeCap);
   }
   if(t.mode==='AMRAP'){
     cfgHtml = `<div class="tag" style="margin-bottom:6px">Quick durations</div>` + chipRow(presets['AMRAP'],'ap') +
-      timeInputRow('Duration (mm:ss)', 'cfg_amrap', c.amrap);
+      timeWheel('cfg_amrap', c.amrap);
   }
   if(t.mode==='EMOM'){
     cfgHtml = chipRow(presets['EMOM'],'em') +
-      timeInputRow('Interval (mm:ss)', 'cfg_emomIv', c.emomIv) +
-      numInputRow('Rounds', 'cfg_emomR', c.emomR);
+      `<div class="row" style="gap:8px">
+        <div style="flex:2">${timeWheel('cfg_emomIv', c.emomIv)}</div>
+        <div style="flex:1">${numWheel('cfg_emomR','Rounds', c.emomR, 1, 60)}</div>
+      </div>`;
   }
   if(t.mode==='Tabata'){
     cfgHtml = chipRow(presets['Tabata'],'tb') +
       `<div class="row" style="gap:8px">
-        <div style="flex:1">${numInputRow('Work (s)','cfg_work',c.work)}</div>
-        <div style="flex:1">${numInputRow('Rest (s)','cfg_rest',c.rest)}</div>
-        <div style="flex:1">${numInputRow('Rounds','cfg_tabR',c.tabataR)}</div>
+        <div style="flex:1">${numWheel('cfg_work','Work s', c.work, 5, 300, 5)}</div>
+        <div style="flex:1">${numWheel('cfg_rest','Rest s', c.rest, 0, 300, 5)}</div>
+        <div style="flex:1">${numWheel('cfg_tabR','Rounds', c.tabataR, 1, 50)}</div>
       </div>`;
   }
-  // Lead-in countdown (shared) as a direct numeric input.
-  cfgHtml += numInputRow('Lead-in (s)', 'cfg_lead', Settings.get().leadIn|0);
+  // Lead-in countdown (shared).
+  cfgHtml += `<div style="margin-top:8px">${numWheel('cfg_lead','Lead-in s', Settings.get().leadIn|0, 0, 60, 5)}</div>`;
 
   let splitsHtml='';
   if(t.mode==='For Time'&&t.splits.length) splitsHtml = `<div class="splits">${t.splits.map((s,i)=>`<div class="s"><div class="k">R${i+1}</div><div class="v">${mmss(s)}</div></div>`).join('')}</div>`;
@@ -1834,17 +1836,19 @@ Screens.timer = function(){
   if(!t.running && !landscape){
     $('tm_modes').querySelectorAll('button').forEach(b=> onTapSafe(b, ()=>{ t.mode=b.dataset.m; t.reset(true); }));
 
-    // Direct time/number inputs commit on change and refresh the display.
-    bindTimeInput('cfg_cap',   (v)=>{ c.forTimeCap=v; t.reset(true); });
-    bindTimeInput('cfg_amrap', (v)=>{ c.amrap=Math.max(10,v); t.reset(true); });
-    bindTimeInput('cfg_emomIv',(v)=>{ c.emomIv=Math.max(5,v); t.reset(true); });
-    bindNumInput('cfg_emomR',  (v)=>{ c.emomR=Math.max(1,v); t.reset(true); });
-    bindNumInput('cfg_work',   (v)=>{ c.work=Math.max(5,v); t.reset(true); });
-    bindNumInput('cfg_rest',   (v)=>{ c.rest=Math.max(0,v); t.reset(true); });
-    bindNumInput('cfg_tabR',   (v)=>{ c.tabataR=Math.max(1,v); t.reset(true); });
-    bindNumInput('cfg_lead',   (v)=>{ Settings.set({leadIn:Math.max(0,v)}); });
+    // Scroll-wheel pickers commit live as you spin them (no full re-render,
+    // so the wheel keeps its position) and only update the clock display.
+    const refreshClock = ()=>{ t.tick0(); t.updateClock?.(); const el=$('tm_clock'); if(el) el.textContent=mmss(t.display); };
+    initTimeWheel('cfg_cap',   (v)=>{ c.forTimeCap=v; if(t.mode==='For Time') refreshClock(); });
+    initTimeWheel('cfg_amrap', (v)=>{ c.amrap=Math.max(10,v); if(t.mode==='AMRAP') refreshClock(); });
+    initTimeWheel('cfg_emomIv',(v)=>{ c.emomIv=Math.max(5,v); });
+    initNumWheel('cfg_emomR',  (v)=>{ c.emomR=Math.max(1,v); });
+    initNumWheel('cfg_work',   (v)=>{ c.work=Math.max(5,v); if(t.mode==='Tabata') refreshClock(); });
+    initNumWheel('cfg_rest',   (v)=>{ c.rest=Math.max(0,v); });
+    initNumWheel('cfg_tabR',   (v)=>{ c.tabataR=Math.max(1,v); });
+    initNumWheel('cfg_lead',   (v)=>{ Settings.set({leadIn:Math.max(0,v)}); });
 
-    // Preset chips (one tap to configure).
+    // Preset chips (one tap) — full re-render so wheels jump to the new values.
     $('screen').querySelectorAll('[data-fc]').forEach(b=> onTapSafe(b, ()=>{ c.forTimeCap=presets['For Time'][+b.dataset.fc][1]; t.reset(true); }));
     $('screen').querySelectorAll('[data-ap]').forEach(b=> onTapSafe(b, ()=>{ c.amrap=presets['AMRAP'][+b.dataset.ap][1]; t.reset(true); }));
     $('screen').querySelectorAll('[data-em]').forEach(b=> onTapSafe(b, ()=>{ const p=presets['EMOM'][+b.dataset.em][1]; c.emomIv=p.iv; c.emomR=p.r; t.reset(true); }));
@@ -1855,29 +1859,73 @@ Screens.timer = function(){
   if($('tm_round_btn')) $('tm_round_btn').onclick=()=>t.markRound();
 };
 
-/* Direct-entry config rows (replace slow +/− steppers). */
-function timeInputRow(label, id, seconds){
-  return `<label class="field"><span>${label}</span>
-    <input class="input timefield" id="${id}" type="text" inputmode="numeric" placeholder="mm:ss" value="${seconds>0?mmss(seconds):''}"></label>`;
+/* =================== Scroll wheel picker (PushPress-style) ===================
+   Spin minutes/seconds (or a number) columns. Snap-scroll on touch; the
+   selected value is whichever option is centered in the highlight band. */
+
+// Build a single number column. range = array of integer values.
+function wheelColumn(id, values, selected){
+  const opts = values.map(v=>`<div class="opt" data-v="${v}">${String(v).padStart(2,'0')}</div>`).join('');
+  return `<div class="wheel" id="${id}" data-sel="${selected}">
+      <div class="pad"></div>${opts}<div class="pad"></div>
+    </div>`;
 }
-function numInputRow(label, id, val){
-  return `<label class="field"><span>${label}</span>
-    <input class="input" id="${id}" type="number" inputmode="numeric" value="${val}"></label>`;
+// mm:ss time wheel (minutes 0–59, seconds 0–59).
+function timeWheel(id, seconds){
+  const m=Math.floor((seconds||0)/60), s=(seconds||0)%60;
+  const mins=[...Array(60).keys()], secs=[...Array(60).keys()];
+  return `<div class="wheels" data-time="${id}">
+      <div class="hl"></div>
+      <div class="wheel-col"><div class="wlabel">min</div>${wheelColumn(id+'_m', mins, m)}</div>
+      <div class="sep">:</div>
+      <div class="wheel-col"><div class="wlabel">sec</div>${wheelColumn(id+'_s', secs, s)}</div>
+    </div>`;
 }
-// Parse "mm:ss" or a plain number (treated as minutes if no colon).
-function parseDur(str){
-  if(str==null) return 0;
-  const s=String(str).trim(); if(!s) return 0;
-  if(s.indexOf(':')>=0){ const [m,sec]=s.split(':'); return (parseInt(m,10)||0)*60 + (parseInt(sec,10)||0); }
-  const n=parseFloat(s); return isNaN(n)?0:Math.round(n*60);   // bare number = minutes
+// Single-number wheel with a label, min..max (step optional).
+function numWheel(id, label, val, min, max, step){
+  step = step||1; const vals=[];
+  for(let v=min; v<=max; v+=step) vals.push(v);
+  return `<div class="wheels" data-num="${id}">
+      <div class="hl"></div>
+      <div class="wheel-col"><div class="wlabel">${esc(label)}</div>${wheelColumn(id+'_n', vals, val)}</div>
+    </div>`;
 }
-function bindTimeInput(id, commit){
-  const el=$(id); if(!el) return;
-  el.onchange = ()=> commit(parseDur(el.value));
+
+// Make a wheel column scrollable + snapping; returns its current value via getter.
+function setupWheel(colId, onPick){
+  const w=$(colId); if(!w) return null;
+  const ih = 40; // must match --ih in CSS
+  const opts = Array.from(w.querySelectorAll('.opt'));
+  const idxOf = (v)=> opts.findIndex(o=> +o.dataset.v === +v);
+  const start = Math.max(0, idxOf(+w.dataset.sel));
+  // Position to the initially-selected option.
+  requestAnimationFrame(()=>{ w.scrollTop = start*ih; markSel(); });
+  function markSel(){
+    const i = Math.round(w.scrollTop/ih);
+    opts.forEach((o,k)=> o.classList.toggle('sel', k===i));
+  }
+  let tmr=null;
+  w.addEventListener('scroll', ()=>{
+    markSel();
+    clearTimeout(tmr);
+    tmr=setTimeout(()=>{
+      const i=Math.max(0,Math.min(opts.length-1, Math.round(w.scrollTop/ih)));
+      w.scrollTo({top:i*ih, behavior:'smooth'});
+      const v=+opts[i].dataset.v; w.dataset.sel=v; buzz(8); onPick && onPick(v);
+    }, 90);
+  }, {passive:true});
+  return { get:()=> +w.dataset.sel };
 }
-function bindNumInput(id, commit){
-  const el=$(id); if(!el) return;
-  el.onchange = ()=> commit(Math.round(parseFloat(el.value)||0));
+
+function initTimeWheel(id, commit){
+  if(!$(id+'_m')) return;
+  const mw=setupWheel(id+'_m', ()=> push());
+  const sw=setupWheel(id+'_s', ()=> push());
+  function push(){ if(mw&&sw) commit(mw.get()*60 + sw.get()); }
+}
+function initNumWheel(id, commit){
+  if(!$(id+'_n')) return;
+  setupWheel(id+'_n', (v)=> commit(v));
 }
 
 /* ------------------------------ Sound -----------------------------------

@@ -1,5 +1,5 @@
 /* WODBook service worker — caches the app shell for offline use. */
-const CACHE = 'wodbook-v17';
+const CACHE = 'wodbook-v18';
 const ASSETS = [
   './',
   './index.html',
