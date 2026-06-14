@@ -167,8 +167,7 @@ const TABS = [
   {id:'cal', title:'Calendar', ic:'📅'},
   {id:'more', title:'More', ic:'⋯'},
 ];
-// Sub-view within the Workouts tab: 'log' (history) or 'bench' (benchmarks).
-let workoutsView = 'log';
+
 let current = 'log';
 
 function renderTabbar(){
@@ -209,80 +208,91 @@ $('sheetBg').onclick = ()=>Sheet.close();
 /* ------------------------------ Screens --------------------------------- */
 const Screens = {};
 
-/* ---- WORKOUTS (Log history + Benchmarks in one tab) ---- */
+/* ---- WORKOUTS (logged entries + benchmarks merged, sorted A–Z) ---- */
 Screens.workouts = function(){
-  // A segmented control switches between "My Log" and "Benchmarks".
-  const seg = `<div class="seg" id="wk_seg" style="margin-bottom:12px">
-      <button data-v="log" class="${workoutsView==='log'?'active':''}">My Log</button>
-      <button data-v="bench" class="${workoutsView==='bench'?'active':''}">Benchmarks</button>
-    </div>`;
-
-  if(workoutsView==='log'){
-    $('topActions').innerHTML = `<button class="iconbtn" id="addWod">＋</button>`;
-  } else {
-    $('topActions').innerHTML = '';
-  }
-
-  $('screen').innerHTML = seg + `<div id="wk_body"></div>`;
-  $('wk_seg').querySelectorAll('button').forEach(b=> onTapSafe(b, ()=>{ workoutsView=b.dataset.v; render(); }));
-
-  if(workoutsView==='log') renderLogBody();
-  else renderBenchBody();
-
+  $('topActions').innerHTML = `<button class="iconbtn" id="addWod">＋</button>`;
+  $('screen').innerHTML =
+    `<input class="input" id="wodSearch" placeholder="Search workouts" style="margin-bottom:12px">
+     <div class="swipe-hint">Tap to open · long-press a logged entry to delete</div>
+     <div class="list" id="wkList"></div>`;
   if($('addWod')) onTapSafe($('addWod'), ()=>editWod(null));
-};
 
-function renderLogBody(){
-  const wods = DB.wodsSorted();
-  let html = `<input class="input" id="wodSearch" placeholder="Search workouts" style="margin-bottom:12px">`;
-  if(!wods.length){
-    html += `<div class="empty"><div class="ic">📋</div><p>No workouts yet.<br>Tap ＋ to log your first WOD.</p></div>`;
-  } else {
-    html += `<div class="swipe-hint">Tap a workout to edit · long-press to delete</div><div class="list" id="wodList"></div>`;
+  const listEl = $('wkList');
+
+  // Build the merged, alphabetized model.
+  // - Each logged workout is its own row (newest first when titles tie).
+  // - Benchmarks that you have NOT logged appear as loggable templates.
+  function buildItems(){
+    const logged = DB.wodsSorted();                        // already newest-first
+    const loggedBenchNames = new Set(
+      logged.filter(w=>w.benchmarkName).map(w=>w.benchmarkName.toLowerCase())
+    );
+    const loggedTitles = new Set(logged.map(w=>(w.title||'').toLowerCase()));
+
+    const items = logged.map(w=>({
+      kind:'log', id:w.id, title:w.title, type:w.type, result:w.result,
+      rxd:w.rxd, date:w.date, search:(w.title+w.details+w.notes).toLowerCase()
+    }));
+
+    // Add benchmark templates that aren't already represented in the log.
+    BENCHMARKS.forEach(b=>{
+      const n = b.name.toLowerCase();
+      if(loggedBenchNames.has(n) || loggedTitles.has(n)) return;
+      items.push({ kind:'bench', name:b.name, title:b.name, type:b.type,
+        cat:b.cat, search:(b.name+' '+b.desc).toLowerCase() });
+    });
+
+    // Sort alphabetically by title (case-insensitive); ties keep log first.
+    items.sort((a,b)=>{
+      const t = a.title.toLowerCase().localeCompare(b.title.toLowerCase());
+      if(t!==0) return t;
+      return (a.kind==='log'?0:1) - (b.kind==='log'?0:1);
+    });
+    return items;
   }
-  $('wk_body').innerHTML = html;
-  const listEl = $('wodList');
-  function paint(filter){
-    if(!listEl) return;
-    const f = (filter||'').toLowerCase();
-    const items = wods.filter(w=> !f || (w.title+w.details+w.notes).toLowerCase().includes(f));
-    listEl.innerHTML = items.map(w=>`
-      <div class="item" data-id="${w.id}">
-        <div class="lead">${typeIcon(w.type)}</div>
+
+  function rowHtml(it){
+    if(it.kind==='log'){
+      return `<div class="item" data-kind="log" data-id="${it.id}">
+        <div class="lead">${typeIcon(it.type)}</div>
         <div class="grow">
-          <div class="title">${esc(w.title)}</div>
-          <div class="sub">${esc(w.type)}${w.result?' · '+esc(w.result):''}</div>
+          <div class="title">${esc(it.title)}</div>
+          <div class="sub">${esc(it.type)}${it.result?' · '+esc(it.result):''}</div>
         </div>
         <div class="trail">
-          ${w.rxd?'<span class="pill">RX</span><br>':''}
-          <span class="tag">${fmtDate(w.date)}</span>
+          ${it.rxd?'<span class="pill">RX</span><br>':''}
+          <span class="tag">${fmtDate(it.date)}</span>
         </div>
-      </div>`).join('') || `<div class="empty"><p>No matches.</p></div>`;
-    bindLongPress(listEl, '.item', (el)=>{
-      const id = el.dataset.id;
-      if(confirm('Delete this workout?')){ DB.deleteWod(id); render(); }
+      </div>`;
+    }
+    // Benchmark template (not yet logged).
+    return `<div class="item" data-kind="bench" data-name="${esc(it.name)}">
+      <div class="lead">${it.cat==='The Girls'?'⭐':'🛡'}</div>
+      <div class="grow">
+        <div class="title">${esc(it.title)}</div>
+        <div class="sub">${esc(it.type)} · benchmark</div>
+      </div>
+      <div class="trail tag">＋</div>
+    </div>`;
+  }
+
+  const all = buildItems();
+  function paint(filter){
+    const f = (filter||'').toLowerCase();
+    const items = f ? all.filter(it=> it.search.includes(f)) : all;
+    if(!items.length){
+      listEl.innerHTML = `<div class="empty"><div class="ic">📋</div><p>${all.length? 'No matches.' : 'No workouts yet.<br>Tap ＋ to log your first WOD.'}</p></div>`;
+      return;
+    }
+    listEl.innerHTML = items.map(rowHtml).join('');
+    bindLongPress(listEl, '.item[data-kind="log"]', (el)=>{
+      if(confirm('Delete this workout?')){ DB.deleteWod(el.dataset.id); render(); }
     }, (el)=> editWod(el.dataset.id));
+    bindLongPress(listEl, '.item[data-kind="bench"]', null, (el)=> benchDetail(el.dataset.name));
   }
   paint('');
-  if($('wodSearch')) $('wodSearch').oninput = (e)=>paint(e.target.value);
-}
-
-function renderBenchBody(){
-  const cats = ['The Girls','Hero WODs'];
-  let html='';
-  cats.forEach(cat=>{
-    html += `<div class="sectiontitle">${cat==='The Girls'?'⭐ ':'🛡 '}${cat}</div><div class="list">`;
-    BENCHMARKS.filter(b=>b.cat===cat).forEach(b=>{
-      html += `<div class="item" data-name="${esc(b.name)}">
-        <div class="lead">${cat==='The Girls'?'⭐':'🛡'}</div>
-        <div class="grow"><div class="title">${esc(b.name)}</div><div class="sub">${esc(b.type)}</div></div>
-        <div class="trail tag">›</div></div>`;
-    });
-    html += `</div>`;
-  });
-  $('wk_body').innerHTML = html;
-  bindLongPress($('wk_body'), '.item[data-name]', null, (el)=>benchDetail(el.dataset.name));
-}
+  $('wodSearch').oninput = (e)=>paint(e.target.value);
+};
 
 function editWod(id, prefill){
   const w = id ? DB.data.wods.find(x=>x.id===id) : null;
@@ -997,7 +1007,7 @@ const Timer = {
     setTimeout(()=>Sound.stop(), 2200);              // stop after the alarm plays out
     Screens.timer();
     setTimeout(()=>{ if(confirm('Workout done — log this result?')){
-      workoutsView='log'; go('log'); editWod(null, {title:this.mode, type:this.resultType(), result:this.resultStr(), details:'', rxd:false, notes:'', date:isoToTs(todayISO())});
+      go('log'); editWod(null, {title:this.mode, type:this.resultType(), result:this.resultStr(), details:'', rxd:false, notes:'', date:isoToTs(todayISO())});
     }}, 400);
   },
   resultStr(){ const c=this.cfg;
