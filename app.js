@@ -6,12 +6,13 @@
 /* ---------------------------- Storage layer ----------------------------- */
 const DB = {
   KEY: 'wodbook.v1',
-  data: { wods: [], lifts: [] },
+  data: { wods: [], lifts: [], bw: [] },
   load(){
     try { this.data = JSON.parse(localStorage.getItem(this.KEY)) || this.data; }
     catch(e){}
     if(!this.data.wods) this.data.wods = [];
     if(!this.data.lifts) this.data.lifts = [];
+    if(!this.data.bw) this.data.bw = [];     // bodyweight readings
   },
   save(){ localStorage.setItem(this.KEY, JSON.stringify(this.data)); },
   // WODs
@@ -22,6 +23,13 @@ const DB = {
   // Lifts
   addLift(l){ l.id = uid(); l.createdAt = Date.now(); this.data.lifts.push(l); this.save(); },
   deleteLift(id){ this.data.lifts = this.data.lifts.filter(x=>x.id!==id); this.save(); },
+  // Bodyweight
+  addBW(b){ b.id = uid(); b.createdAt = Date.now(); this.data.bw.push(b);
+    // Keep Settings' current bodyweight in sync with the latest reading.
+    const latest = [...this.data.bw].sort((x,y)=>y.date-x.date)[0];
+    if(latest) Settings.set({ bodyweight: latest.weight, units: latest.unit });
+    this.save(); },
+  deleteBW(id){ this.data.bw = this.data.bw.filter(x=>x.id!==id); this.save(); },
 };
 
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
@@ -287,7 +295,7 @@ Screens.workouts = function(){
     listEl.innerHTML = items.map(rowHtml).join('');
     bindLongPress(listEl, '.item[data-kind="log"]', (el)=>{
       if(confirm('Delete this workout?')){ DB.deleteWod(el.dataset.id); render(); }
-    }, (el)=> editWod(el.dataset.id));
+    }, (el)=> wodDetail(el.dataset.id));
     bindLongPress(listEl, '.item[data-kind="bench"]', null, (el)=> benchDetail(el.dataset.name));
   }
   paint('');
@@ -367,29 +375,136 @@ function benchDetail(name){
   });
 }
 
-/* ---- LIFTS ---- */
+/* Detail for a logged workout: all attempts of the same WOD + PR + history.
+   Workouts are grouped by benchmarkName when present, otherwise by title. */
+function wodDetail(id){
+  const w = DB.data.wods.find(x=>x.id===id);
+  if(!w) return;
+  const groupKey = (x)=> (x.benchmarkName || x.title || '').toLowerCase();
+  const key = groupKey(w);
+  const attempts = DB.data.wods.filter(x=> groupKey(x)===key).sort((a,c)=>c.date-a.date);
+
+  // PR: fastest for timed WODs, else most recent scored attempt.
+  let best=null;
+  const scored = attempts.filter(a=>a.result);
+  if(scored.length){
+    if(w.type==='For Time'){ best = scored.reduce((m,a)=> (parseTimeToSec(a.result)??1e9) < (parseTimeToSec(m.result)??1e9)?a:m ); }
+    else best = scored[0];
+  }
+
+  function open(){
+    const list = attempts.map(a=>`
+      <div class="item" data-id="${a.id}"><div class="lead">${typeIcon(a.type)}</div>
+        <div class="grow"><div class="title">${esc(a.result||'—')}</div>
+          <div class="sub">${fmtDateFull(a.date)}${a.notes?' · '+esc(a.notes):''}</div></div>
+        ${a.rxd?'<span class="pill">RX</span>':''}</div>`).join('');
+
+    Sheet.open(w.title, `
+      <div class="card"><h3>Workout</h3>
+        ${w.details?`<div style="white-space:pre-wrap">${esc(w.details)}</div>`:'<div class="tag">No description.</div>'}
+        <div class="tag" style="margin-top:8px">Type: ${esc(w.type)}</div></div>
+      ${best?`<div class="card"><h3>🏆 Personal Best</h3>
+        <div class="big" style="font-size:22px">${esc(best.result)}</div>
+        <div class="tag">${fmtDateFull(best.date)} ${best.rxd?'· RX':''}</div></div>`:''}
+      <button class="btn primary block" id="w_again">＋ Log Again</button>
+      <button class="btn block" id="w_edit" style="margin-top:8px">Edit This Entry</button>
+      <div class="sectiontitle">History (${attempts.length})</div>
+      <div class="list" id="w_hist">${list}</div>
+    `, ()=>{
+      onTapSafe($('w_again'), ()=>{ Sheet.close(); editWod(null, {
+        title:w.title, type:w.type, details:w.details, result:'', rxd:false, notes:'',
+        date:isoToTs(todayISO()), benchmarkName:w.benchmarkName||null
+      }); });
+      onTapSafe($('w_edit'), ()=>{ Sheet.close(); editWod(w.id); });
+      // Tap any history row to edit that specific attempt.
+      bindLongPress($('w_hist'), '.item[data-id]', (el)=>{
+        if(confirm('Delete this attempt?')){ DB.deleteWod(el.dataset.id); Sheet.close(); render(); }
+      }, (el)=>{ Sheet.close(); editWod(el.dataset.id); });
+    });
+  }
+  open();
+}
+
+/* ---- LIFTS (with Bodyweight tracker at top) ---- */
 Screens.lifts = function(){
   $('topActions').innerHTML = `<button class="iconbtn" id="addLift">＋</button>`;
-  $('addLift').onclick = ()=>editLift(null);
+  if($('addLift')) onTapSafe($('addLift'), ()=>editLift(null));
+
+  // Bodyweight summary (latest reading).
+  const bw = [...DB.data.bw].sort((a,b)=>b.date-a.date);
+  const latestBW = bw[0];
+  const bwRow = `<div class="item" id="bwRow">
+      <div class="lead">⚖️</div>
+      <div class="grow"><div class="title">Bodyweight</div>
+        <div class="sub">${latestBW?('last: '+fmtDate(latestBW.date)):'tap to add a reading'}</div></div>
+      <div class="trail">${latestBW?`<div class="big">${latestBW.weight}${esc(latestBW.unit)}</div>`:'<div class="tag">＋</div>'}</div>
+    </div>`;
+
   const names = [...new Set(DB.data.lifts.map(l=>l.name))].sort();
+  let liftsHtml = '';
   if(!names.length){
-    $('screen').innerHTML = `<div class="empty"><div class="ic">🏋️</div><p>No lifts tracked.<br>Tap ＋ to log a max.</p></div>`;
-    return;
+    liftsHtml = `<div class="empty" style="padding:30px 20px"><div class="ic">🏋️</div><p>No lifts tracked yet.<br>Tap ＋ to log a max.</p></div>`;
+  } else {
+    liftsHtml = `<div class="sectiontitle">Lifts</div><div class="list" id="liftList">` + names.map(n=>{
+      const entries = DB.data.lifts.filter(l=>l.name===n);
+      const best = entries.reduce((m,l)=> e1rm(l.weight,l.reps)>e1rm(m.weight,m.reps)?l:m);
+      return `<div class="item" data-name="${esc(n)}">
+        <div class="lead">🏋️</div>
+        <div class="grow"><div class="title">${esc(n)}</div>
+          <div class="sub">best e1RM ${e1rm(best.weight,best.reps)} ${esc(best.unit)}</div></div>
+        <div class="trail"><div class="big">${best.weight}${esc(best.unit)}</div><div class="tag">×${best.reps}</div></div></div>`;
+    }).join('') + `</div>`;
   }
-  let html = `<div class="list">`;
-  names.forEach(n=>{
-    const entries = DB.data.lifts.filter(l=>l.name===n);
-    const best = entries.reduce((m,l)=> e1rm(l.weight,l.reps)>e1rm(m.weight,m.reps)?l:m);
-    html += `<div class="item" data-name="${esc(n)}">
-      <div class="lead">🏋️</div>
-      <div class="grow"><div class="title">${esc(n)}</div>
-        <div class="sub">best e1RM ${e1rm(best.weight,best.reps)} ${esc(best.unit)}</div></div>
-      <div class="trail"><div class="big">${best.weight}${esc(best.unit)}</div><div class="tag">×${best.reps}</div></div></div>`;
-  });
-  html += `</div>`;
-  $('screen').innerHTML = html;
-  bindLongPress($('screen'), '.item[data-name]', null, (el)=>liftDetail(el.dataset.name));
+
+  $('screen').innerHTML = `<div class="sectiontitle">Body</div><div class="list">${bwRow}</div>${liftsHtml}`;
+  onTapSafe($('bwRow'), bodyweightDetail);
+  if($('liftList')) bindLongPress($('liftList'), '.item[data-name]', null, (el)=>liftDetail(el.dataset.name));
 };
+
+/* Bodyweight history + chart, with quick add. */
+function bodyweightDetail(){
+  const entries = [...DB.data.bw].sort((a,b)=>a.date-b.date);
+  const chart = entries.length>1 ? lineChartSVG(entries.map(e=>({x:e.date, y:e.weight}))) : '';
+  Sheet.open('Bodyweight', `
+    <button class="btn primary block" id="bw_add">＋ Log Bodyweight</button>
+    ${chart?`<div class="card"><h3>Bodyweight over time</h3>${chart}</div>`:''}
+    <div class="sectiontitle">Readings (${entries.length})</div>
+    <div class="list" id="bw_list">${entries.length?[...entries].reverse().map(e=>`
+      <div class="item" data-id="${e.id}">
+        <div class="grow"><div class="title">${e.weight} ${esc(e.unit)}</div>
+          <div class="sub">${fmtDateFull(e.date)}${e.notes?' · '+esc(e.notes):''}</div></div></div>`).join(''):'<div class="empty"><p>No readings yet.</p></div>'}</div>
+  `, ()=>{
+    onTapSafe($('bw_add'), ()=>{ Sheet.close(); editBodyweight(); });
+    bindLongPress($('bw_list'), '.item[data-id]', (el)=>{
+      if(confirm('Delete this reading?')){ DB.deleteBW(el.dataset.id); Sheet.close(); render(); }
+    });
+  });
+}
+
+function editBodyweight(){
+  const defUnit = Settings.get().units==='kg'?'kg':'lb';
+  const prefill = Settings.get().bodyweight!=null ? Settings.get().bodyweight : '';
+  Sheet.open('Log Bodyweight', `
+    <div class="row" style="gap:10px">
+      <label class="field" style="flex:1"><span>Weight</span>
+        <input class="input" id="bw_w" type="number" inputmode="decimal" value="${prefill}" placeholder="0"></label>
+      <label class="field" style="width:110px"><span>Unit</span>
+        <div class="seg" id="bw_unit"><button data-u="lb" class="${defUnit==='lb'?'active':''}">lb</button><button data-u="kg" class="${defUnit==='kg'?'active':''}">kg</button></div></label>
+    </div>
+    <label class="field"><span>Date</span><input class="input" type="date" id="bw_date" value="${todayISO()}"></label>
+    <label class="field"><span>Notes</span><input class="input" id="bw_notes" placeholder="Optional"></label>
+    <button class="btn primary block" id="bw_save">Save</button>
+  `, ()=>{
+    let unit=defUnit;
+    $('bw_unit').querySelectorAll('button').forEach(b=> b.onclick=()=>{ unit=b.dataset.u; $('bw_unit').querySelectorAll('button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); });
+    $('bw_save').onclick = ()=>{
+      const w = parseFloat($('bw_w').value);
+      if(isNaN(w)){ toast('Enter a weight'); return; }
+      DB.addBW({ weight:w, unit, date:isoToTs($('bw_date').value||todayISO()), notes:$('bw_notes').value.trim() });
+      Sheet.close(); render(); toast('Bodyweight saved');
+    };
+  });
+}
 
 function liftDetail(name){
   const entries = DB.data.lifts.filter(l=>l.name===name).sort((a,b)=>a.date-b.date);
@@ -622,7 +737,7 @@ function backupSheet(){
         const obj = JSON.parse(r.result);
         if(!obj.wods||!obj.lifts) throw 0;
         if(confirm('Replace all data on this device with the backup?')){
-          DB.data = {wods:obj.wods, lifts:obj.lifts}; DB.save(); Sheet.close(); render(); toast('Data restored');
+          DB.data = {wods:obj.wods, lifts:obj.lifts, bw:obj.bw||[]}; DB.save(); Sheet.close(); render(); toast('Data restored');
         }
       }catch(err){ toast('Invalid backup file'); } };
       r.readAsText(file);
@@ -875,6 +990,11 @@ function runMywodImport(arrayBuffer){
       if(ath.dateOfBirth) patch.dob = String(ath.dateOfBirth).slice(0,10);
       if(ath.boxName) patch.box = ath.boxName;
       Settings.set(patch);
+      // Seed a starting bodyweight reading if none exist yet.
+      if(bw && DB.data.bw.length===0){
+        DB.data.bw.push({ id:uid(), createdAt:Date.now(), weight:bw, unit:units,
+          date: ath.dateOfBirth ? Date.now() : Date.now(), notes:'from myWOD' });
+      }
       profileMsg = `<br>Profile updated${bw?` (bodyweight ${bw} ${units})`:''}.`;
     }
   }catch(e){}
