@@ -60,8 +60,12 @@ const Settings = {
   _cache:null,
   defaults:{ sound:true, vibrate:true, flash:true, keepAwake:true, leadIn:10, units:'lb',
              name:'', bodyweight:null, dob:'', box:'',
+             // Profile for the calorie calculator
+             sex:'male', heightIn:null, activity:'moderate', dietGoal:'maintain',
              // Nutrition goals
-             kcalGoal:2000, proteinGoal:150, carbsGoal:200, fatGoal:65, waterGoal:3000 },
+             kcalGoal:2000, proteinGoal:150, carbsGoal:200, fatGoal:65, waterGoal:3000,
+             // Cronometer-style: USDA source + micronutrient tracking
+             usdaKey:'', trackMicros:true },
   get(){
     if(this._cache) return this._cache;
     let s={};
@@ -597,6 +601,69 @@ function sumNutrition(items){
   }), {kcal:0,p:0,c:0,f:0});
 }
 
+/* ---- Calorie goal calculator (Mifflin–St Jeor BMR -> TDEE -> goal) ---- */
+const ACTIVITY = {
+  sedentary:{label:'Sedentary (little/no exercise)', f:1.2},
+  light:{label:'Light (1–3 days/wk)', f:1.375},
+  moderate:{label:'Moderate (3–5 days/wk)', f:1.55},
+  active:{label:'Active (6–7 days/wk)', f:1.725},
+  athlete:{label:'Athlete (2×/day)', f:1.9}
+};
+const DIET_GOAL = {
+  cut:{label:'Lose weight (−500 kcal)', delta:-500},
+  mild:{label:'Mild loss (−250 kcal)', delta:-250},
+  maintain:{label:'Maintain', delta:0},
+  gain:{label:'Gain (+300 kcal)', delta:300}
+};
+function ageFromDob(dob){
+  if(!dob) return null;
+  const d=new Date(dob+'T12:00:00'); if(isNaN(d)) return null;
+  const now=new Date(); let a=now.getFullYear()-d.getFullYear();
+  const m=now.getMonth()-d.getMonth(); if(m<0||(m===0&&now.getDate()<d.getDate())) a--;
+  return (a>0&&a<120)?a:null;
+}
+// Returns suggested {kcal, protein, carbs, fat, bmr, tdee} or null if missing inputs.
+function calcCalories(){
+  const s=Settings.get();
+  const age=ageFromDob(s.dob);
+  const heightIn = s.heightIn;
+  // Bodyweight: convert to kg.
+  let kg=null;
+  if(s.bodyweight!=null){ kg = s.units==='kg' ? s.bodyweight : s.bodyweight*0.45359237; }
+  if(!age || !heightIn || !kg) return null;
+  const cm = heightIn*2.54;
+  let bmr = 10*kg + 6.25*cm - 5*age + (s.sex==='female' ? -161 : 5);
+  const tdee = bmr * (ACTIVITY[s.activity]||ACTIVITY.moderate).f;
+  const kcal = Math.round((tdee + (DIET_GOAL[s.dietGoal]||DIET_GOAL.maintain).delta)/10)*10;
+  // Macro split: protein ~1g per lb bodyweight, fat 25% kcal, rest carbs.
+  const lb = s.units==='kg' ? s.bodyweight/0.45359237 : s.bodyweight;
+  const protein = Math.round(lb);                 // ~1 g/lb
+  const fat = Math.round(kcal*0.25/9);
+  const carbs = Math.max(0, Math.round((kcal - protein*4 - fat*9)/4));
+  return { kcal, protein, carbs, fat, bmr:Math.round(bmr), tdee:Math.round(tdee) };
+}
+
+/* ---- Micronutrients (Cronometer-style) ----
+   key -> { label, unit, rda }. RDA = general adult daily reference value. */
+const MICROS = [
+  {k:'fiber',   label:'Fiber',     unit:'g',  rda:30},
+  {k:'sugar',   label:'Sugar',     unit:'g',  rda:50},
+  {k:'sodium',  label:'Sodium',    unit:'mg', rda:2300},
+  {k:'potassium',label:'Potassium',unit:'mg', rda:3500},
+  {k:'calcium', label:'Calcium',   unit:'mg', rda:1000},
+  {k:'iron',    label:'Iron',      unit:'mg', rda:18},
+  {k:'vitc',    label:'Vitamin C', unit:'mg', rda:90},
+  {k:'vita',    label:'Vitamin A', unit:'µg', rda:900},
+  {k:'vitd',    label:'Vitamin D', unit:'µg', rda:20},
+  {k:'chol',    label:'Cholesterol',unit:'mg',rda:300},
+  {k:'satfat',  label:'Sat. Fat',  unit:'g',  rda:20}
+];
+function sumMicros(items){
+  const out={}; MICROS.forEach(m=> out[m.k]=0);
+  items.forEach(f=> MICROS.forEach(m=> out[m.k]+= (+(f[m.k])||0)));
+  return out;
+}
+
 // SVG progress ring for calories.
 function calorieRing(consumed, goal){
   const r=46, cx=56, cy=56, circ=2*Math.PI*r;
@@ -661,6 +728,31 @@ Screens.food = function(){
       <button class="water-btn" data-ml="-250">−250</button>
     </div>`;
 
+  // Energy balance: calories in (food) vs out (workouts that day with a burn).
+  const burned = DB.data.wods.filter(w=> tsToISO(w.date)===foodDay)
+    .reduce((a,w)=> a + (+w.kcalBurned||0), 0);
+  const net = Math.round(tot.kcal - burned);
+  const balanceHtml = `<div class="meal-head"><div><span class="t">Energy Balance</span></div></div>
+    <div class="row between" style="font-size:14px"><span>Consumed</span><span class="big">${Math.round(tot.kcal)}</span></div>
+    <div class="row between" style="font-size:14px"><span>Burned (workouts)</span><span class="big">${burned?'−'+burned:'0'}</span></div>
+    <div class="row between" style="font-size:15px;border-top:1px solid var(--line);margin-top:6px;padding-top:6px">
+      <span>Net</span><span class="big" style="color:${net>s.kcalGoal?'var(--danger)':'var(--green)'}">${net}</span></div>
+    <div class="tag" style="margin-top:4px">Add a calorie burn to a workout entry to include it here.</div>`;
+
+  // Micronutrient summary (Cronometer-style) with RDA % progress.
+  let microHtml = '';
+  if(s.trackMicros!==false){
+    const mt = sumMicros(items);
+    microHtml = `<div class="meal-head"><div><span class="t">Nutrients</span> <span class="k">% of daily target</span></div></div>` +
+      MICROS.map(m=>{
+        const v = mt[m.k]||0; const pct = m.rda>0?Math.min(100,Math.round(v/m.rda*100)):0;
+        const over = (m.k==='sodium'||m.k==='sugar'||m.k==='satfat'||m.k==='chol') && v>m.rda;
+        return `<div class="macro" style="margin-bottom:8px"><div class="top">
+            <span>${m.label}</span><span class="v">${Math.round(v*10)/10}${m.unit} · ${pct}%</span></div>
+          <div class="track"><div class="fill" style="width:${pct}%;background:${over?'#e5564b':'#3ec46d'}"></div></div></div>`;
+      }).join('');
+  }
+
   $('screen').innerHTML = `
     <div class="date-nav">
       <button class="iconbtn" id="fd_prev">‹</button>
@@ -669,7 +761,9 @@ Screens.food = function(){
     </div>
     <div class="card">${ringHtml}</div>
     ${mealsHtml}
-    <div class="card" style="margin-top:14px">${waterHtml}</div>`;
+    <div class="card" style="margin-top:14px">${waterHtml}</div>
+    <div class="card" style="margin-top:14px">${balanceHtml}</div>
+    ${microHtml?`<div class="card" style="margin-top:14px">${microHtml}</div>`:''}`;
 
   onTapSafe($('fd_prev'), ()=>{ foodDay=shiftISO(foodDay,-1); render(); });
   onTapSafe($('fd_next'), ()=>{ foodDay=shiftISO(foodDay, 1); render(); });
@@ -709,16 +803,28 @@ function addFoodFlow(meal){
   });
 }
 
+let foodSource = 'off';   // 'off' = Open Food Facts, 'usda' = USDA FoodData Central
 function paintSearch(body, meal){
-  body.innerHTML = `<input class="input" id="af_q" placeholder="Search foods (e.g. banana)" style="margin-bottom:10px">
-    <div id="af_results"><div class="tag">Type to search the Open Food Facts database (needs internet).</div></div>`;
+  const hasUsda = !!(Settings.get().usdaKey||'').trim();
+  if(!hasUsda) foodSource='off';
+  const sourceSeg = hasUsda ? `<div class="seg sm" id="src_seg" style="margin-bottom:8px">
+      <button data-s="off" class="${foodSource==='off'?'active':''}">Open Food Facts</button>
+      <button data-s="usda" class="${foodSource==='usda'?'active':''}">USDA</button></div>` : '';
+  body.innerHTML = sourceSeg +
+    `<input class="input" id="af_q" placeholder="Search foods (e.g. banana)" style="margin-bottom:10px">
+     <div id="af_results"><div class="tag">Type to search${hasUsda?'':' the Open Food Facts database'} (needs internet).${hasUsda?'':' Add a USDA key in Settings for richer nutrient data.'}</div></div>`;
+  if(hasUsda) $('src_seg').querySelectorAll('button').forEach(b=> onTapSafe(b, ()=>{ foodSource=b.dataset.s; paintSearch(body, meal); }));
   let t=null;
+  const run=(q)=>{
+    const fn = foodSource==='usda' ? usdaSearch : offSearch;
+    fn(q).then(list=> showFoodResults($('af_results'), list, meal))
+      .catch((e)=> $('af_results').innerHTML=`<div class="tag">${e&&e.message==='no-key'?'Add your USDA API key in Settings.':'Search failed (offline?). Try Custom instead.'}</div>`);
+  };
   $('af_q').oninput = (e)=>{
     clearTimeout(t); const q=e.target.value.trim();
     if(q.length<2){ $('af_results').innerHTML=''; return; }
     $('af_results').innerHTML = '<div class="tag">Searching…</div>';
-    t=setTimeout(()=> offSearch(q).then(list=> showFoodResults($('af_results'), list, meal))
-      .catch(()=> $('af_results').innerHTML='<div class="tag">Search failed (offline?). Try Custom instead.</div>'), 400);
+    t=setTimeout(()=> run(q), 400);
   };
 }
 
@@ -726,7 +832,7 @@ function showFoodResults(el, list, meal){
   if(!list.length){ el.innerHTML='<div class="tag">No results. Try Custom.</div>'; return; }
   el.innerHTML = list.map((f,i)=>`<div class="search-result" data-i="${i}">
     <div class="title">${esc(f.name)}</div>
-    <div class="sub">${f.kcal} kcal · P${f.protein} C${f.carbs} F${f.fat} per ${esc(f.serving)}</div></div>`).join('');
+    <div class="sub">${f.kcal} kcal · P${f.protein} C${f.carbs} F${f.fat} per ${esc(f.serving)}${f.source?' · '+f.source:''}</div></div>`).join('');
   el.querySelectorAll('.search-result').forEach(r=> onTapSafe(r, ()=> portionFood(list[+r.dataset.i], meal)));
 }
 
@@ -817,9 +923,12 @@ function portionFood(food, meal){
     $('pf_mult').oninput=calc; calc();
     $('pf_add').onclick=()=>{
       const m=parseFloat($('pf_mult').value)||1;
-      DB.addFood({ name:food.name, meal, date:isoToTs(foodDay),
+      const rec = { name:food.name, meal, date:isoToTs(foodDay),
         serving:(m===1?food.serving:`${m} × ${food.serving||'serving'}`),
-        kcal:food.kcal*m, protein:food.protein*m, carbs:food.carbs*m, fat:food.fat*m });
+        kcal:food.kcal*m, protein:food.protein*m, carbs:food.carbs*m, fat:food.fat*m };
+      // Scale micronutrients too.
+      MICROS.forEach(mi=>{ if(food[mi.k]!=null) rec[mi.k] = (+food[mi.k]||0)*m; });
+      DB.addFood(rec);
       Sheet.close(); render(); toast('Added');
     };
   });
@@ -849,12 +958,19 @@ function editFoodEntry(f){
 function offNorm(prod){
   const n = prod.nutriments||{};
   const per = (k)=> Math.round((n[k+'_serving'] != null ? n[k+'_serving'] : (n[k+'_100g']||0)));
+  const perF = (k)=> { const v = (n[k+'_serving'] != null ? n[k+'_serving'] : (n[k+'_100g']||0)); return Math.round((+v||0)*10)/10; };
   const serving = prod.serving_size || '100 g';
   return {
     name: (prod.product_name || prod.generic_name || 'Unknown').slice(0,80),
     serving,
     kcal: Math.round(n['energy-kcal_serving'] != null ? n['energy-kcal_serving'] : (n['energy-kcal_100g']||0)),
-    protein: per('proteins'), carbs: per('carbohydrates'), fat: per('fat')
+    protein: per('proteins'), carbs: per('carbohydrates'), fat: per('fat'),
+    // Micronutrients (Open Food Facts keys)
+    fiber: perF('fiber'), sugar: perF('sugars'), sodium: per('sodium')*1000 || per('salt')*400,
+    potassium: per('potassium'), calcium: per('calcium'), iron: perF('iron'),
+    vitc: perF('vitamin-c'), vita: per('vitamin-a'), vitd: perF('vitamin-d'),
+    chol: per('cholesterol'), satfat: perF('saturated-fat'),
+    source:'OFF'
   };
 }
 async function offSearch(q){
@@ -867,6 +983,35 @@ async function offBarcode(code){
   const data = await res.json();
   if(data.status!==1 || !data.product) return null;
   return offNorm(data.product);
+}
+
+/* ---- USDA FoodData Central (Cronometer-style, richer micronutrients) ---- */
+// Map of USDA nutrient names -> our food fields (values are per 100 g).
+const USDA_MAP = {
+  'Energy':'kcal','Protein':'protein','Carbohydrate, by difference':'carbs','Total lipid (fat)':'fat',
+  'Fiber, total dietary':'fiber','Sugars, total including NLEA':'sugar','Sodium, Na':'sodium',
+  'Potassium, K':'potassium','Calcium, Ca':'calcium','Iron, Fe':'iron',
+  'Vitamin C, total ascorbic acid':'vitc','Vitamin A, RAE':'vita','Vitamin D (D2 + D3)':'vitd',
+  'Cholesterol':'chol','Fatty acids, total saturated':'satfat'
+};
+function usdaNorm(food){
+  const out = { name:(food.description||'Unknown').slice(0,80), serving:'100 g', source:'USDA',
+    kcal:0,protein:0,carbs:0,fat:0 };
+  (food.foodNutrients||[]).forEach(nu=>{
+    const nm = nu.nutrientName || (nu.nutrient && nu.nutrient.name);
+    const val = (nu.value!=null?nu.value:nu.amount)||0;
+    const field = USDA_MAP[nm];
+    if(field){ out[field] = field==='kcal'||field==='sodium'||field==='potassium'||field==='calcium'||field==='vita'||field==='chol' ? Math.round(val) : Math.round(val*10)/10; }
+  });
+  return out;
+}
+async function usdaSearch(q){
+  const key = (Settings.get().usdaKey||'').trim();
+  if(!key) throw new Error('no-key');
+  const url = `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${encodeURIComponent(key)}&query=${encodeURIComponent(q)}&pageSize=25&dataType=Foundation,SR%20Legacy,Branded`;
+  const res = await fetch(url); if(!res.ok) throw new Error('usda '+res.status);
+  const data = await res.json();
+  return (data.foods||[]).map(usdaNorm).filter(f=> f.kcal>0 || f.protein>0);
 }
 
 /* ---- Barcode scanning (BarcodeDetector with manual fallback) ---- */
@@ -987,6 +1132,13 @@ function settingsSheet(){
       <label class="field" style="flex:1"><span>Box / Gym</span>
         <input class="input" id="st_box" value="${esc(s.box||'')}" placeholder="Optional"></label>
     </div>
+    <div class="row" style="gap:10px">
+      <label class="field" style="flex:1"><span>Sex</span>
+        <div class="seg" id="st_sex"><button data-x="male" class="${s.sex!=='female'?'active':''}">Male</button><button data-x="female" class="${s.sex==='female'?'active':''}">Female</button></div></label>
+      <label class="field" style="flex:1"><span>Height (in)</span>
+        <input class="input" id="st_h" type="number" inputmode="decimal" value="${s.heightIn!=null?s.heightIn:''}" placeholder="e.g. 67"></label>
+    </div>
+    <label class="field"><span>Date of birth</span><input class="input" type="date" id="st_dob" value="${esc(s.dob||'')}"></label>
 
     <div class="sectiontitle">Timer cues</div>
     <div class="card">
@@ -1003,6 +1155,16 @@ function settingsSheet(){
         <div class="seg" id="st_units"><button data-u="lb" class="${s.units!=='kg'?'active':''}">lb</button><button data-u="kg" class="${s.units==='kg'?'active':''}">kg</button></div></label>
     </div>
 
+    <div class="sectiontitle">Calorie calculator</div>
+    <div class="card">
+      <label class="field"><span>Activity level</span>
+        <select class="input" id="st_act">${Object.entries(ACTIVITY).map(([k,v])=>`<option value="${k}" ${s.activity===k?'selected':''}>${v.label}</option>`).join('')}</select></label>
+      <label class="field"><span>Goal</span>
+        <select class="input" id="st_goal">${Object.entries(DIET_GOAL).map(([k,v])=>`<option value="${k}" ${s.dietGoal===k?'selected':''}>${v.label}</option>`).join('')}</select></label>
+      <div class="tag" id="st_calcout" style="margin-bottom:10px"></div>
+      <button class="btn block" id="st_calc">Calculate & apply to goals</button>
+    </div>
+
     <div class="sectiontitle">Nutrition goals</div>
     <div class="card">
       <label class="field"><span>Daily calories</span><input class="input" id="st_kcal" type="number" inputmode="numeric" value="${s.kcalGoal}"></label>
@@ -1014,6 +1176,14 @@ function settingsSheet(){
       <label class="field"><span>Water goal (ml)</span><input class="input" id="st_water" type="number" inputmode="numeric" value="${s.waterGoal}"></label>
     </div>
 
+    <div class="sectiontitle">Food database</div>
+    <div class="card">
+      <div class="toggle" style="margin-bottom:12px"><span>Track micronutrients</span><button class="${sw(s.trackMicros!==false)}" id="st_micros"></button></div>
+      <label class="field"><span>USDA FoodData Central API key (optional)</span>
+        <input class="input" id="st_usda" value="${esc(s.usdaKey||'')}" placeholder="Paste key for richer nutrient data"></label>
+      <div class="tag">Free key at fdc.nal.usda.gov. Leave blank to use Open Food Facts only.</div>
+    </div>
+
     <button class="btn green block" id="st_test">▶ Test sound</button>
   `, ()=>{
     const toggle=(id,key)=>{ $(id).onclick=()=>{ const cur=Settings.get()[key]!==false; Settings.set({[key]:!cur}); $(id).classList.toggle('on',!cur); }; };
@@ -1021,7 +1191,24 @@ function settingsSheet(){
     $('st_name').oninput = ()=> Settings.set({name:$('st_name').value.trim()});
     $('st_box').oninput = ()=> Settings.set({box:$('st_box').value.trim()});
     $('st_bw').oninput = ()=>{ const v=parseFloat($('st_bw').value); Settings.set({bodyweight: isNaN(v)?null:v}); };
+    $('st_h').oninput = ()=>{ const v=parseFloat($('st_h').value); Settings.set({heightIn: isNaN(v)?null:v}); };
+    $('st_dob').oninput = ()=> Settings.set({dob:$('st_dob').value});
+    $('st_sex').querySelectorAll('button').forEach(b=> b.onclick=()=>{ Settings.set({sex:b.dataset.x}); $('st_sex').querySelectorAll('button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); });
     $('st_units').querySelectorAll('button').forEach(b=> b.onclick=()=>{ Settings.set({units:b.dataset.u}); $('st_units').querySelectorAll('button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); });
+    // Calorie calculator
+    $('st_act').onchange = ()=> Settings.set({activity:$('st_act').value});
+    $('st_goal').onchange = ()=> Settings.set({dietGoal:$('st_goal').value});
+    $('st_calc').onclick = ()=>{
+      const r = calcCalories();
+      if(!r){ $('st_calcout').innerHTML = '<span style="color:var(--danger)">Need sex, height, date of birth and bodyweight first.</span>'; return; }
+      Settings.set({ kcalGoal:r.kcal, proteinGoal:r.protein, carbsGoal:r.carbs, fatGoal:r.fat });
+      $('st_kcal').value=r.kcal; $('st_p').value=r.protein; $('st_c').value=r.carbs; $('st_f').value=r.fat;
+      $('st_calcout').innerHTML = `BMR ${r.bmr} · TDEE ${r.tdee} → goal <b>${r.kcal} kcal</b> · P${r.protein} C${r.carbs} F${r.fat}. Applied ✓`;
+      toast('Goals updated');
+    };
+    // Food database
+    $('st_usda').oninput = ()=> Settings.set({usdaKey:$('st_usda').value.trim()});
+    toggle('st_micros','trackMicros');
     const refreshLead=()=> $('st_lead').textContent=(Settings.get().leadIn|0)+'s';
     $('st_leadDn').onclick=()=>{ Settings.set({leadIn:Math.max(0,(Settings.get().leadIn|0)-5)}); refreshLead(); };
     $('st_leadUp').onclick=()=>{ Settings.set({leadIn:(Settings.get().leadIn|0)+5}); refreshLead(); };
@@ -1055,12 +1242,34 @@ function progressSheet(){
     <div style="height:10px;background:var(--card2);border-radius:6px;overflow:hidden;margin-top:4px"><div style="height:100%;width:${Math.round(x.v/lmax*100)}%;background:var(--accent)"></div></div></div>
   `).join('') : '<div class="empty"><p>Log lift maxes to track strength.</p></div>';
   const thisMonth = wods.filter(w=>{ const d=new Date(w.date), n=new Date(); return d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear(); }).length;
+
+  // --- Nutrition trend: calories/day for the last 14 days ---
+  const s = Settings.get();
+  const days = [];
+  for(let i=13;i>=0;i--) days.push(shiftISO(todayISO(), -i));
+  const dayK = days.map(iso=> ({ iso, kcal: Math.round(sumNutrition(DB.foodFor(iso)).kcal) }));
+  const anyFood = dayK.some(d=>d.kcal>0);
+  const kmax = Math.max(s.kcalGoal||1, ...dayK.map(d=>d.kcal), 1);
+  const calBars = anyFood ? `<div class="bars" style="height:150px">${dayK.map(d=>{
+    const h = Math.round(d.kcal/kmax*120);
+    const over = s.kcalGoal>0 && d.kcal>s.kcalGoal;
+    const lbl = new Date(d.iso+'T12:00:00').toLocaleDateString(undefined,{day:'numeric'});
+    return `<div class="b"><div class="bar" style="height:${h}px;background:${over?'#e5564b':'#3ec46d'}"></div><div class="lbl">${lbl}</div></div>`;
+  }).join('')}</div><div class="tag" style="text-align:center;margin-top:6px">Goal: ${s.kcalGoal} kcal/day · green = under, red = over</div>`
+    : '<div class="empty"><p>Log food to see your calorie trend.</p></div>';
+
+  // Bodyweight trend (reuse line chart)
+  const bwSorted = [...DB.data.bw].sort((a,b)=>a.date-b.date);
+  const bwChart = bwSorted.length>1 ? lineChartSVG(bwSorted.map(e=>({x:e.date,y:e.weight}))) : '';
+
   Sheet.open('Progress', `
     <div class="stat-grid" style="margin-bottom:12px">
       <div class="stat"><div class="n">${wods.length}</div><div class="l">Workouts</div></div>
       <div class="stat"><div class="n">${thisMonth}</div><div class="l">This Month</div></div>
       <div class="stat"><div class="n">${names.length}</div><div class="l">Lifts</div></div>
     </div>
+    <div class="card"><h3>Calories / Day (14d)</h3>${calBars}</div>
+    ${bwChart?`<div class="card"><h3>Bodyweight Trend</h3>${bwChart}</div>`:''}
     <div class="card"><h3>Workouts per Month</h3>${bars}</div>
     <div class="card"><h3>Lift Maxes (e1RM)</h3>${liftBars}</div>`);
 }
@@ -1360,6 +1569,8 @@ function runMywodImport(arrayBuffer){
       if(bw) patch.bodyweight = bw;
       if(ath.dateOfBirth) patch.dob = String(ath.dateOfBirth).slice(0,10);
       if(ath.boxName) patch.box = ath.boxName;
+      if(ath.height) patch.heightIn = Number(ath.height);   // myWOD height is inches
+      if(ath.gender!=null) patch.sex = (ath.gender===1?'female':'male');
       Settings.set(patch);
       // Seed a starting bodyweight reading if none exist yet.
       if(bw && DB.data.bw.length===0){
