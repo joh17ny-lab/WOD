@@ -161,13 +161,14 @@ function lineChartSVG(pts){
 
 /* ------------------------------ Router ---------------------------------- */
 const TABS = [
-  {id:'log', title:'Log', ic:'📋'},
-  {id:'bench', title:'Benchmarks', ic:'⭐'},
+  {id:'log', title:'Workouts', ic:'📋'},
   {id:'lifts', title:'Lifts', ic:'🏋️'},
   {id:'timer', title:'Timer', ic:'⏱'},
   {id:'cal', title:'Calendar', ic:'📅'},
   {id:'more', title:'More', ic:'⋯'},
 ];
+// Sub-view within the Workouts tab: 'log' (history) or 'bench' (benchmarks).
+let workoutsView = 'log';
 let current = 'log';
 
 function renderTabbar(){
@@ -176,8 +177,8 @@ function renderTabbar(){
       <span class="ic">${t.ic}</span><span>${t.title}</span>
     </button>`).join('');
   $('tabbar').querySelectorAll('button').forEach(b=>{
-    b.onclick = ()=>{ if(current==='timer' && Timer.running){ if(!confirm('Leave the running timer?')) return; }
-      go(b.dataset.tab); };
+    onTapSafe(b, ()=>{ if(current==='timer' && Timer.running){ if(!confirm('Leave the running timer?')) return; }
+      go(b.dataset.tab); });
   });
 }
 function go(tab){ current = tab; renderTabbar(); render(); }
@@ -187,7 +188,7 @@ function render(){
   $('screenTitle').textContent = t.title;
   $('topActions').innerHTML = '';
   if(current!=='timer'){ document.body.classList.remove('timer-active','timer-running'); }
-  const fns = {log:Screens.log, bench:Screens.bench, lifts:Screens.lifts, timer:Screens.timer, cal:Screens.cal, more:Screens.more};
+  const fns = {log:Screens.workouts, lifts:Screens.lifts, timer:Screens.timer, cal:Screens.cal, more:Screens.more};
   fns[current]();
 }
 
@@ -208,10 +209,30 @@ $('sheetBg').onclick = ()=>Sheet.close();
 /* ------------------------------ Screens --------------------------------- */
 const Screens = {};
 
-/* ---- LOG / HISTORY ---- */
-Screens.log = function(){
-  $('topActions').innerHTML = `<button class="iconbtn" id="addWod">＋</button>`;
-  $('addWod').onclick = ()=>editWod(null);
+/* ---- WORKOUTS (Log history + Benchmarks in one tab) ---- */
+Screens.workouts = function(){
+  // A segmented control switches between "My Log" and "Benchmarks".
+  const seg = `<div class="seg" id="wk_seg" style="margin-bottom:12px">
+      <button data-v="log" class="${workoutsView==='log'?'active':''}">My Log</button>
+      <button data-v="bench" class="${workoutsView==='bench'?'active':''}">Benchmarks</button>
+    </div>`;
+
+  if(workoutsView==='log'){
+    $('topActions').innerHTML = `<button class="iconbtn" id="addWod">＋</button>`;
+  } else {
+    $('topActions').innerHTML = '';
+  }
+
+  $('screen').innerHTML = seg + `<div id="wk_body"></div>`;
+  $('wk_seg').querySelectorAll('button').forEach(b=> onTapSafe(b, ()=>{ workoutsView=b.dataset.v; render(); }));
+
+  if(workoutsView==='log') renderLogBody();
+  else renderBenchBody();
+
+  if($('addWod')) onTapSafe($('addWod'), ()=>editWod(null));
+};
+
+function renderLogBody(){
   const wods = DB.wodsSorted();
   let html = `<input class="input" id="wodSearch" placeholder="Search workouts" style="margin-bottom:12px">`;
   if(!wods.length){
@@ -219,7 +240,7 @@ Screens.log = function(){
   } else {
     html += `<div class="swipe-hint">Tap a workout to edit · long-press to delete</div><div class="list" id="wodList"></div>`;
   }
-  $('screen').innerHTML = html;
+  $('wk_body').innerHTML = html;
   const listEl = $('wodList');
   function paint(filter){
     if(!listEl) return;
@@ -244,7 +265,24 @@ Screens.log = function(){
   }
   paint('');
   if($('wodSearch')) $('wodSearch').oninput = (e)=>paint(e.target.value);
-};
+}
+
+function renderBenchBody(){
+  const cats = ['The Girls','Hero WODs'];
+  let html='';
+  cats.forEach(cat=>{
+    html += `<div class="sectiontitle">${cat==='The Girls'?'⭐ ':'🛡 '}${cat}</div><div class="list">`;
+    BENCHMARKS.filter(b=>b.cat===cat).forEach(b=>{
+      html += `<div class="item" data-name="${esc(b.name)}">
+        <div class="lead">${cat==='The Girls'?'⭐':'🛡'}</div>
+        <div class="grow"><div class="title">${esc(b.name)}</div><div class="sub">${esc(b.type)}</div></div>
+        <div class="trail tag">›</div></div>`;
+    });
+    html += `</div>`;
+  });
+  $('wk_body').innerHTML = html;
+  bindLongPress($('wk_body'), '.item[data-name]', null, (el)=>benchDetail(el.dataset.name));
+}
 
 function editWod(id, prefill){
   const w = id ? DB.data.wods.find(x=>x.id===id) : null;
@@ -284,24 +322,7 @@ function editWod(id, prefill){
   });
 }
 
-/* ---- BENCHMARKS ---- */
-Screens.bench = function(){
-  const cats = ['The Girls','Hero WODs'];
-  let html='';
-  cats.forEach(cat=>{
-    html += `<div class="sectiontitle">${cat==='The Girls'?'⭐ ':'🛡 '}${cat}</div><div class="list">`;
-    BENCHMARKS.filter(b=>b.cat===cat).forEach(b=>{
-      html += `<div class="item" data-name="${esc(b.name)}">
-        <div class="lead">${cat==='The Girls'?'⭐':'🛡'}</div>
-        <div class="grow"><div class="title">${esc(b.name)}</div><div class="sub">${esc(b.type)}</div></div>
-        <div class="trail tag">›</div></div>`;
-    });
-    html += `</div>`;
-  });
-  $('screen').innerHTML = html;
-  $('screen').querySelectorAll('.item').forEach(el=> el.onclick=()=>benchDetail(el.dataset.name));
-};
-
+/* ---- BENCHMARKS helpers (rendered inside the Workouts tab) ---- */
 function parseTimeToSec(s){
   if(!s) return null;
   const p = s.split(':');
@@ -357,7 +378,7 @@ Screens.lifts = function(){
   });
   html += `</div>`;
   $('screen').innerHTML = html;
-  $('screen').querySelectorAll('.item').forEach(el=> el.onclick=()=>liftDetail(el.dataset.name));
+  bindLongPress($('screen'), '.item[data-name]', null, (el)=>liftDetail(el.dataset.name));
 };
 
 function liftDetail(name){
@@ -450,10 +471,10 @@ Screens.cal = function(){
       <div class="item" data-id="${w.id}"><div class="lead">${typeIcon(w.type)}</div>
         <div class="grow"><div class="title">${esc(w.title)}</div><div class="sub">${esc(w.type)}${w.result?' · '+esc(w.result):''}</div></div>
         ${w.rxd?'<span class="pill">RX</span>':''}</div>`).join(''):'<div class="empty"><p>No workouts this day.</p></div>'}</div>`;
-  $('cal_prev').onclick=()=>{ calMonth=new Date(y,m-1,1); render(); };
-  $('cal_next').onclick=()=>{ calMonth=new Date(y,m+1,1); render(); };
-  $('screen').querySelectorAll('.cal-cell[data-iso]').forEach(c=> c.onclick=()=>{ calSel=c.dataset.iso; render(); });
-  $('cal_list').querySelectorAll('.item[data-id]').forEach(el=> el.onclick=()=>editWod(el.dataset.id));
+  onTapSafe($('cal_prev'), ()=>{ calMonth=new Date(y,m-1,1); render(); });
+  onTapSafe($('cal_next'), ()=>{ calMonth=new Date(y,m+1,1); render(); });
+  $('screen').querySelectorAll('.cal-cell[data-iso]').forEach(c=> onTapSafe(c, ()=>{ calSel=c.dataset.iso; render(); }));
+  bindLongPress($('cal_list'), '.item[data-id]', null, (el)=>editWod(el.dataset.id));
 };
 
 /* ---- MORE: progress + movements + backup ---- */
@@ -469,11 +490,11 @@ Screens.more = function(){
     </div>
     <div class="sectiontitle">About</div>
     <div class="card"><div class="tag">WODBook${s.name?(' · '+esc(s.name)):''} · installs to your home screen. Data is stored on this device only — use Backup to move it or keep it safe.</div></div>`;
-  $('m_settings').onclick = settingsSheet;
-  $('m_prog').onclick = progressSheet;
-  $('m_mov').onclick = movementsSheet;
-  $('m_import').onclick = importMywodSheet;
-  $('m_backup').onclick = backupSheet;
+  onTapSafe($('m_settings'), settingsSheet);
+  onTapSafe($('m_prog'), progressSheet);
+  onTapSafe($('m_mov'), movementsSheet);
+  onTapSafe($('m_import'), importMywodSheet);
+  onTapSafe($('m_backup'), backupSheet);
 };
 
 function settingsSheet(){
@@ -976,7 +997,7 @@ const Timer = {
     setTimeout(()=>Sound.stop(), 2200);              // stop after the alarm plays out
     Screens.timer();
     setTimeout(()=>{ if(confirm('Workout done — log this result?')){
-      go('log'); editWod(null, {title:this.mode, type:this.resultType(), result:this.resultStr(), details:'', rxd:false, notes:'', date:isoToTs(todayISO())});
+      workoutsView='log'; go('log'); editWod(null, {title:this.mode, type:this.resultType(), result:this.resultStr(), details:'', rxd:false, notes:'', date:isoToTs(todayISO())});
     }}, 400);
   },
   resultStr(){ const c=this.cfg;
@@ -1164,18 +1185,54 @@ function flash(color, ms){
   el._h = setTimeout(()=>{ el.style.opacity = '0'; }, ms||220);
 }
 
-/* --------------------------- Interactions ------------------------------- */
+/* --------------------------- Interactions -------------------------------
+   Tap / long-press helper that ignores scrolls. A tap only fires if the
+   finger barely moved (< MOVE_TOL px) and was released quickly; scrolling or
+   dragging never triggers navigation. Long-press (≥ HOLD ms) fires onLong. */
+const MOVE_TOL = 12;   // px of movement allowed before it's treated as a scroll
+const HOLD = 600;      // ms to register a long-press
 function bindLongPress(container, sel, onLong, onTap){
   if(!container) return;
   container.querySelectorAll(sel).forEach(el=>{
-    let timer=null, longed=false;
-    const start=()=>{ longed=false; timer=setTimeout(()=>{ longed=true; buzz(30); onLong(el); },550); };
-    const cancel=()=>{ clearTimeout(timer); };
-    el.addEventListener('touchstart',start,{passive:true});
-    el.addEventListener('touchend',()=>{ cancel(); if(!longed && onTap) onTap(el); });
-    el.addEventListener('touchmove',cancel,{passive:true});
+    let timer=null, longed=false, moved=false, sx=0, sy=0, active=false;
+
+    const clearTimer=()=>{ if(timer){ clearTimeout(timer); timer=null; } };
+
+    el.addEventListener('touchstart',(e)=>{
+      if(e.touches.length>1) return;          // ignore multi-touch
+      active=true; longed=false; moved=false;
+      sx=e.touches[0].clientX; sy=e.touches[0].clientY;
+      clearTimer();
+      timer=setTimeout(()=>{ if(active && !moved){ longed=true; buzz(30); onLong && onLong(el); } }, HOLD);
+    },{passive:true});
+
+    el.addEventListener('touchmove',(e)=>{
+      if(!active) return;
+      const dx=Math.abs(e.touches[0].clientX-sx), dy=Math.abs(e.touches[0].clientY-sy);
+      if(dx>MOVE_TOL || dy>MOVE_TOL){ moved=true; clearTimer(); }   // it's a scroll
+    },{passive:true});
+
+    el.addEventListener('touchend',()=>{
+      clearTimer();
+      if(active && !longed && !moved && onTap) onTap(el);   // genuine tap only
+      active=false;
+    });
+    el.addEventListener('touchcancel',()=>{ clearTimer(); active=false; });
+
+    // Desktop / non-touch fallback.
     el.addEventListener('click',()=>{ if(onTap && !('ontouchstart' in window)) onTap(el); });
   });
+}
+
+/* Robust tap binding for simple buttons/menu items (no long-press needed).
+   Same scroll-tolerance so a quick scroll won't accidentally activate them. */
+function onTapSafe(el, fn){
+  if(!el) return;
+  let sx=0, sy=0, moved=false, active=false;
+  el.addEventListener('touchstart',(e)=>{ if(e.touches.length>1){active=false;return;} active=true; moved=false; sx=e.touches[0].clientX; sy=e.touches[0].clientY; },{passive:true});
+  el.addEventListener('touchmove',(e)=>{ if(!active)return; if(Math.abs(e.touches[0].clientX-sx)>MOVE_TOL||Math.abs(e.touches[0].clientY-sy)>MOVE_TOL) moved=true; },{passive:true});
+  el.addEventListener('touchend',(e)=>{ if(active && !moved){ e.preventDefault(); fn(el); } active=false; });
+  el.addEventListener('click',()=>{ if(!('ontouchstart' in window)) fn(el); });
 }
 
 /* ------------------------ Orientation tracking -------------------------- */
