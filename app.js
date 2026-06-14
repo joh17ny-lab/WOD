@@ -6,15 +6,35 @@
 /* ---------------------------- Storage layer ----------------------------- */
 const DB = {
   KEY: 'wodbook.v1',
-  data: { wods: [], lifts: [], bw: [] },
+  data: { wods: [], lifts: [], bw: [], food: [], water: [], customFoods: [], meals: [] },
   load(){
     try { this.data = JSON.parse(localStorage.getItem(this.KEY)) || this.data; }
     catch(e){}
     if(!this.data.wods) this.data.wods = [];
     if(!this.data.lifts) this.data.lifts = [];
-    if(!this.data.bw) this.data.bw = [];     // bodyweight readings
+    if(!this.data.bw) this.data.bw = [];           // bodyweight readings
+    if(!this.data.food) this.data.food = [];       // food diary entries
+    if(!this.data.water) this.data.water = [];     // water readings {date, ml}
+    if(!this.data.customFoods) this.data.customFoods = []; // user-created foods
+    if(!this.data.meals) this.data.meals = [];     // saved meals (groups of foods)
   },
   save(){ localStorage.setItem(this.KEY, JSON.stringify(this.data)); },
+
+  // Nutrition: food diary
+  addFood(f){ f.id=uid(); f.createdAt=Date.now(); this.data.food.push(f); this.save(); },
+  deleteFood(id){ this.data.food = this.data.food.filter(x=>x.id!==id); this.save(); },
+  foodFor(iso){ return this.data.food.filter(f=> tsToISO(f.date)===iso); },
+  // Custom foods (reusable)
+  addCustomFood(f){ f.id=uid(); this.data.customFoods.push(f); this.save(); },
+  deleteCustomFood(id){ this.data.customFoods = this.data.customFoods.filter(x=>x.id!==id); this.save(); },
+  // Saved meals
+  addMeal(m){ m.id=uid(); this.data.meals.push(m); this.save(); },
+  deleteMeal(id){ this.data.meals = this.data.meals.filter(x=>x.id!==id); this.save(); },
+  // Water (one running total per day, stored in ml)
+  waterFor(iso){ const r=this.data.water.find(w=>w.iso===iso); return r? r.ml : 0; },
+  addWater(iso, ml){ let r=this.data.water.find(w=>w.iso===iso);
+    if(!r){ r={iso, ml:0}; this.data.water.push(r); }
+    r.ml = Math.max(0, r.ml + ml); this.save(); },
   // WODs
   addWod(w){ w.id = uid(); w.createdAt = Date.now(); this.data.wods.push(w); this.save(); },
   updateWod(id, patch){ const w=this.data.wods.find(x=>x.id===id); if(w){Object.assign(w,patch); this.save();} },
@@ -39,7 +59,9 @@ const Settings = {
   KEY:'wodbook.settings.v1',
   _cache:null,
   defaults:{ sound:true, vibrate:true, flash:true, keepAwake:true, leadIn:10, units:'lb',
-             name:'', bodyweight:null, dob:'', box:'' },
+             name:'', bodyweight:null, dob:'', box:'',
+             // Nutrition goals
+             kcalGoal:2000, proteinGoal:150, carbsGoal:200, fatGoal:65, waterGoal:3000 },
   get(){
     if(this._cache) return this._cache;
     let s={};
@@ -172,6 +194,7 @@ const TABS = [
   {id:'log', title:'Workouts', ic:'📋'},
   {id:'lifts', title:'Lifts', ic:'🏋️'},
   {id:'timer', title:'Timer', ic:'⏱'},
+  {id:'food', title:'Food', ic:'🍎'},
   {id:'cal', title:'Calendar', ic:'📅'},
   {id:'more', title:'More', ic:'⋯'},
 ];
@@ -195,7 +218,7 @@ function render(){
   $('screenTitle').textContent = t.title;
   $('topActions').innerHTML = '';
   if(current!=='timer'){ document.body.classList.remove('timer-active','timer-running'); }
-  const fns = {log:Screens.workouts, lifts:Screens.lifts, timer:Screens.timer, cal:Screens.cal, more:Screens.more};
+  const fns = {log:Screens.workouts, lifts:Screens.lifts, timer:Screens.timer, food:Screens.food, cal:Screens.cal, more:Screens.more};
   fns[current]();
 }
 
@@ -564,6 +587,335 @@ function editLift(presetName){
   });
 }
 
+/* ============================ NUTRITION ============================== */
+let foodDay = todayISO();                 // currently viewed diary date
+const MEALS = ['Breakfast','Lunch','Dinner','Snacks'];
+
+function sumNutrition(items){
+  return items.reduce((a,f)=>({
+    kcal:a.kcal+(+f.kcal||0), p:a.p+(+f.protein||0), c:a.c+(+f.carbs||0), f:a.f+(+f.fat||0)
+  }), {kcal:0,p:0,c:0,f:0});
+}
+
+// SVG progress ring for calories.
+function calorieRing(consumed, goal){
+  const r=46, cx=56, cy=56, circ=2*Math.PI*r;
+  const pct = goal>0 ? Math.min(1, consumed/goal) : 0;
+  const off = circ*(1-pct);
+  const over = goal>0 && consumed>goal;
+  return `<svg width="112" height="112" viewBox="0 0 112 112" class="cal-ring">
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#222c3d" stroke-width="10"/>
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${over?'#e5564b':'#3ec46d'}" stroke-width="10"
+      stroke-linecap="round" stroke-dasharray="${circ}" stroke-dashoffset="${off}"
+      transform="rotate(-90 ${cx} ${cy})"/>
+  </svg>`;
+}
+
+Screens.food = function(){
+  $('topActions').innerHTML = '';
+  const s = Settings.get();
+  const items = DB.foodFor(foodDay);
+  const tot = sumNutrition(items);
+  const water = DB.waterFor(foodDay);
+
+  const macro = (cls,label,val,goal,unit)=>{
+    const pct = goal>0?Math.min(100,Math.round(val/goal*100)):0;
+    return `<div class="macro ${cls}"><div class="top"><span>${label}</span><span class="v">${Math.round(val)} / ${goal}${unit}</span></div>
+      <div class="track"><div class="fill" style="width:${pct}%"></div></div></div>`;
+  };
+
+  const ringHtml = `<div class="cal-ring-wrap">
+      <div style="position:relative;width:112px;height:112px">
+        ${calorieRing(tot.kcal, s.kcalGoal)}
+        <div class="kcal-center" style="position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center">
+          <div class="n">${Math.max(0, Math.round(s.kcalGoal - tot.kcal))}</div><div class="l">kcal left</div>
+        </div>
+      </div>
+      <div class="macro-rows">
+        ${macro('p','Protein',tot.p,s.proteinGoal,'g')}
+        ${macro('c','Carbs',tot.c,s.carbsGoal,'g')}
+        ${macro('f','Fat',tot.f,s.fatGoal,'g')}
+      </div>
+    </div>`;
+
+  let mealsHtml = '';
+  MEALS.forEach(meal=>{
+    const mi = items.filter(f=>f.meal===meal);
+    const mk = sumNutrition(mi);
+    mealsHtml += `<div class="meal-head"><div><span class="t">${meal}</span> <span class="k">${Math.round(mk.kcal)} kcal</span></div>
+      <button class="add" data-meal="${meal}">＋</button></div>`;
+    mealsHtml += mi.map(f=>`
+      <div class="food-item" data-id="${f.id}">
+        <div class="grow"><div class="title">${esc(f.name)}</div>
+          <div class="sub">${esc(f.serving||'')}${f.serving?' · ':''}P${Math.round(f.protein||0)} C${Math.round(f.carbs||0)} F${Math.round(f.fat||0)}</div></div>
+        <div class="kcal">${Math.round(f.kcal||0)}</div>
+      </div>`).join('');
+  });
+
+  const wPct = s.waterGoal>0?Math.min(100,Math.round(water/s.waterGoal*100)):0;
+  const waterHtml = `<div class="meal-head"><div><span class="t">Water 💧</span> <span class="k">${water} / ${s.waterGoal} ml</span></div></div>
+    <div class="macro" style="margin-bottom:8px"><div class="track"><div class="fill" style="width:${wPct}%;background:#5b9cf0"></div></div></div>
+    <div class="water-row">
+      <button class="water-btn" data-ml="250">+250</button>
+      <button class="water-btn" data-ml="500">+500</button>
+      <button class="water-btn" data-ml="-250">−250</button>
+    </div>`;
+
+  $('screen').innerHTML = `
+    <div class="date-nav">
+      <button class="iconbtn" id="fd_prev">‹</button>
+      <div class="d" id="fd_label">${foodDay===todayISO()?'Today':fmtDateFull(isoToTs(foodDay))}</div>
+      <button class="iconbtn" id="fd_next">›</button>
+    </div>
+    <div class="card">${ringHtml}</div>
+    ${mealsHtml}
+    <div class="card" style="margin-top:14px">${waterHtml}</div>`;
+
+  onTapSafe($('fd_prev'), ()=>{ foodDay=shiftISO(foodDay,-1); render(); });
+  onTapSafe($('fd_next'), ()=>{ foodDay=shiftISO(foodDay, 1); render(); });
+  $('screen').querySelectorAll('.add[data-meal]').forEach(b=> onTapSafe(b, ()=> addFoodFlow(b.dataset.meal)));
+  $('screen').querySelectorAll('.water-btn').forEach(b=> onTapSafe(b, ()=>{ DB.addWater(foodDay, +b.dataset.ml); render(); }));
+  bindLongPress($('screen'), '.food-item[data-id]', (el)=>{
+    if(confirm('Remove this food?')){ DB.deleteFood(el.dataset.id); render(); }
+  }, (el)=>{ const f=DB.data.food.find(x=>x.id===el.dataset.id); if(f) editFoodEntry(f); });
+};
+
+function shiftISO(iso, days){ const d=new Date(iso+'T12:00:00'); d.setDate(d.getDate()+days); return d.toISOString().slice(0,10); }
+
+/* ---- Add food: tabs for Search / Recents / Custom / Meals / Scan ---- */
+function addFoodFlow(meal){
+  Sheet.open(`Add to ${meal}`, `
+    <div class="seg sm" id="af_tabs" style="margin-bottom:12px">
+      <button data-t="search" class="active">Search</button>
+      <button data-t="recent">Recent</button>
+      <button data-t="custom">Custom</button>
+      <button data-t="meals">Meals</button>
+      <button data-t="scan">Scan</button>
+    </div>
+    <div id="af_body"></div>`, ()=>{
+    let tab='search';
+    const tabsEl=$('af_tabs');
+    const paint=()=>{
+      tabsEl.querySelectorAll('button').forEach(b=>b.classList.toggle('active', b.dataset.t===tab));
+      const body=$('af_body');
+      if(tab==='search') paintSearch(body, meal);
+      else if(tab==='recent') paintRecent(body, meal);
+      else if(tab==='custom') paintCustom(body, meal);
+      else if(tab==='meals') paintMeals(body, meal);
+      else paintScan(body, meal);
+    };
+    tabsEl.querySelectorAll('button').forEach(b=> onTapSafe(b, ()=>{ tab=b.dataset.t; paint(); }));
+    paint();
+  });
+}
+
+function paintSearch(body, meal){
+  body.innerHTML = `<input class="input" id="af_q" placeholder="Search foods (e.g. banana)" style="margin-bottom:10px">
+    <div id="af_results"><div class="tag">Type to search the Open Food Facts database (needs internet).</div></div>`;
+  let t=null;
+  $('af_q').oninput = (e)=>{
+    clearTimeout(t); const q=e.target.value.trim();
+    if(q.length<2){ $('af_results').innerHTML=''; return; }
+    $('af_results').innerHTML = '<div class="tag">Searching…</div>';
+    t=setTimeout(()=> offSearch(q).then(list=> showFoodResults($('af_results'), list, meal))
+      .catch(()=> $('af_results').innerHTML='<div class="tag">Search failed (offline?). Try Custom instead.</div>'), 400);
+  };
+}
+
+function showFoodResults(el, list, meal){
+  if(!list.length){ el.innerHTML='<div class="tag">No results. Try Custom.</div>'; return; }
+  el.innerHTML = list.map((f,i)=>`<div class="search-result" data-i="${i}">
+    <div class="title">${esc(f.name)}</div>
+    <div class="sub">${f.kcal} kcal · P${f.protein} C${f.carbs} F${f.fat} per ${esc(f.serving)}</div></div>`).join('');
+  el.querySelectorAll('.search-result').forEach(r=> onTapSafe(r, ()=> portionFood(list[+r.dataset.i], meal)));
+}
+
+function paintRecent(body, meal){
+  // Build a unique list of recently logged foods.
+  const seen=new Set(), recents=[];
+  [...DB.data.food].sort((a,b)=>b.createdAt-a.createdAt).forEach(f=>{
+    const k=f.name.toLowerCase(); if(seen.has(k)) return; seen.add(k);
+    recents.push(f);
+  });
+  if(!recents.length){ body.innerHTML='<div class="tag">No recent foods yet.</div>'; return; }
+  body.innerHTML = recents.slice(0,40).map((f,i)=>`<div class="search-result" data-i="${i}">
+    <div class="title">${esc(f.name)}</div><div class="sub">${Math.round(f.kcal)} kcal · ${esc(f.serving||'')}</div></div>`).join('');
+  body.querySelectorAll('.search-result').forEach(r=> onTapSafe(r, ()=>{
+    const f=recents[+r.dataset.i];
+    DB.addFood({ name:f.name, meal, date:isoToTs(foodDay), serving:f.serving,
+      kcal:f.kcal, protein:f.protein, carbs:f.carbs, fat:f.fat });
+    Sheet.close(); render(); toast('Added');
+  }));
+}
+
+function paintCustom(body, meal){
+  const list = DB.data.customFoods;
+  body.innerHTML = `<button class="btn primary block" id="cf_new">＋ Create Custom Food</button>
+    <div class="sectiontitle">My Foods</div>
+    <div id="cf_list">${list.length?list.map((f,i)=>`<div class="search-result" data-i="${i}">
+      <div class="title">${esc(f.name)}</div><div class="sub">${f.kcal} kcal · ${esc(f.serving||'')}</div></div>`).join(''):'<div class="tag">No custom foods yet.</div>'}</div>`;
+  onTapSafe($('cf_new'), ()=> customFoodForm(meal));
+  $('cf_list').querySelectorAll('.search-result').forEach(r=> onTapSafe(r, ()=> portionFood(list[+r.dataset.i], meal)));
+}
+
+function customFoodForm(meal){
+  Sheet.open('Create Food', `
+    <label class="field"><span>Name</span><input class="input" id="cf_name" placeholder="e.g. Protein shake"></label>
+    <label class="field"><span>Serving description</span><input class="input" id="cf_serv" placeholder="e.g. 1 scoop (30g)"></label>
+    <div class="row" style="gap:8px">
+      <label class="field" style="flex:1"><span>Calories</span><input class="input" id="cf_kcal" type="number" inputmode="decimal"></label>
+      <label class="field" style="flex:1"><span>Protein g</span><input class="input" id="cf_p" type="number" inputmode="decimal"></label>
+    </div>
+    <div class="row" style="gap:8px">
+      <label class="field" style="flex:1"><span>Carbs g</span><input class="input" id="cf_c" type="number" inputmode="decimal"></label>
+      <label class="field" style="flex:1"><span>Fat g</span><input class="input" id="cf_f" type="number" inputmode="decimal"></label>
+    </div>
+    <button class="btn primary block" id="cf_save">Save & Add</button>
+  `, ()=>{
+    $('cf_save').onclick = ()=>{
+      const name=$('cf_name').value.trim(); if(!name){ toast('Name required'); return; }
+      const food={ name, serving:$('cf_serv').value.trim()||'1 serving',
+        kcal:+$('cf_kcal').value||0, protein:+$('cf_p').value||0, carbs:+$('cf_c').value||0, fat:+$('cf_f').value||0 };
+      DB.addCustomFood({...food});
+      DB.addFood({...food, meal, date:isoToTs(foodDay)});
+      Sheet.close(); render(); toast('Added');
+    };
+  });
+}
+
+function paintMeals(body, meal){
+  const meals = DB.data.meals;
+  body.innerHTML = `<div class="tag" style="margin-bottom:8px">Saved meals add several foods at once. Save the current day's ${esc(meal)} as a meal below.</div>
+    <button class="btn block" id="ml_save">💾 Save current ${esc(meal)} as a meal</button>
+    <div class="sectiontitle">Saved Meals</div>
+    <div id="ml_list">${meals.length?meals.map((m,i)=>`<div class="search-result" data-i="${i}">
+      <div class="title">${esc(m.name)}</div><div class="sub">${m.foods.length} items · ${Math.round(sumNutrition(m.foods).kcal)} kcal</div></div>`).join(''):'<div class="tag">No saved meals yet.</div>'}</div>`;
+  onTapSafe($('ml_save'), ()=>{
+    const cur = DB.foodFor(foodDay).filter(f=>f.meal===meal);
+    if(!cur.length){ toast('Nothing in '+meal+' to save'); return; }
+    const name = prompt('Name this meal:', meal+' combo'); if(!name) return;
+    DB.addMeal({ name, foods: cur.map(f=>({name:f.name,serving:f.serving,kcal:f.kcal,protein:f.protein,carbs:f.carbs,fat:f.fat})) });
+    paintMeals(body, meal); toast('Meal saved');
+  });
+  $('ml_list').querySelectorAll('.search-result').forEach(r=> onTapSafe(r, ()=>{
+    const m=meals[+r.dataset.i];
+    m.foods.forEach(f=> DB.addFood({...f, meal, date:isoToTs(foodDay)}));
+    Sheet.close(); render(); toast('Meal added');
+  }));
+}
+
+/* Portion chooser: pick servings multiplier before adding. */
+function portionFood(food, meal){
+  Sheet.open(food.name, `
+    <div class="card"><div class="tag">Per ${esc(food.serving||'serving')}: ${food.kcal} kcal · P${food.protein} C${food.carbs} F${food.fat}</div></div>
+    <label class="field"><span>Number of servings</span><input class="input" id="pf_mult" type="number" inputmode="decimal" value="1"></label>
+    <div class="tag" id="pf_calc"></div>
+    <button class="btn primary block" id="pf_add" style="margin-top:10px">Add to ${esc(meal)}</button>
+  `, ()=>{
+    const calc=()=>{ const m=parseFloat($('pf_mult').value)||0;
+      $('pf_calc').textContent = `Total: ${Math.round(food.kcal*m)} kcal · P${Math.round(food.protein*m)} C${Math.round(food.carbs*m)} F${Math.round(food.fat*m)}`; };
+    $('pf_mult').oninput=calc; calc();
+    $('pf_add').onclick=()=>{
+      const m=parseFloat($('pf_mult').value)||1;
+      DB.addFood({ name:food.name, meal, date:isoToTs(foodDay),
+        serving:(m===1?food.serving:`${m} × ${food.serving||'serving'}`),
+        kcal:food.kcal*m, protein:food.protein*m, carbs:food.carbs*m, fat:food.fat*m });
+      Sheet.close(); render(); toast('Added');
+    };
+  });
+}
+
+function editFoodEntry(f){
+  Sheet.open('Edit Food', `
+    <label class="field"><span>Name</span><input class="input" id="ef_name" value="${esc(f.name)}"></label>
+    <div class="row" style="gap:8px">
+      <label class="field" style="flex:1"><span>Calories</span><input class="input" id="ef_kcal" type="number" value="${Math.round(f.kcal||0)}"></label>
+      <label class="field" style="flex:1"><span>Protein g</span><input class="input" id="ef_p" type="number" value="${Math.round(f.protein||0)}"></label>
+    </div>
+    <div class="row" style="gap:8px">
+      <label class="field" style="flex:1"><span>Carbs g</span><input class="input" id="ef_c" type="number" value="${Math.round(f.carbs||0)}"></label>
+      <label class="field" style="flex:1"><span>Fat g</span><input class="input" id="ef_f" type="number" value="${Math.round(f.fat||0)}"></label>
+    </div>
+    <button class="btn primary block" id="ef_save">Save</button>
+    <button class="btn danger block" id="ef_del" style="margin-top:8px">Delete</button>
+  `, ()=>{
+    $('ef_save').onclick=()=>{ f.name=$('ef_name').value.trim()||f.name; f.kcal=+$('ef_kcal').value||0;
+      f.protein=+$('ef_p').value||0; f.carbs=+$('ef_c').value||0; f.fat=+$('ef_f').value||0; DB.save(); Sheet.close(); render(); };
+    $('ef_del').onclick=()=>{ if(confirm('Delete this food?')){ DB.deleteFood(f.id); Sheet.close(); render(); } };
+  });
+}
+
+/* ---- Open Food Facts integration (free, needs internet) ---- */
+function offNorm(prod){
+  const n = prod.nutriments||{};
+  const per = (k)=> Math.round((n[k+'_serving'] != null ? n[k+'_serving'] : (n[k+'_100g']||0)));
+  const serving = prod.serving_size || '100 g';
+  return {
+    name: (prod.product_name || prod.generic_name || 'Unknown').slice(0,80),
+    serving,
+    kcal: Math.round(n['energy-kcal_serving'] != null ? n['energy-kcal_serving'] : (n['energy-kcal_100g']||0)),
+    protein: per('proteins'), carbs: per('carbohydrates'), fat: per('fat')
+  };
+}
+async function offSearch(q){
+  const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=25&fields=product_name,generic_name,serving_size,nutriments`;
+  const res = await fetch(url); const data = await res.json();
+  return (data.products||[]).map(offNorm).filter(f=> f.kcal>0 || f.protein>0);
+}
+async function offBarcode(code){
+  const res = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=product_name,generic_name,serving_size,nutriments`);
+  const data = await res.json();
+  if(data.status!==1 || !data.product) return null;
+  return offNorm(data.product);
+}
+
+/* ---- Barcode scanning (BarcodeDetector with manual fallback) ---- */
+function paintScan(body, meal){
+  const supported = ('BarcodeDetector' in window);
+  body.innerHTML = `
+    ${supported?`<div class="scanbox" id="sc_box"><video id="sc_video" playsinline muted></video></div>
+      <div class="tag" id="sc_status" style="margin:8px 0">Point the camera at a barcode…</div>`
+      : `<div class="tag">Live scanning isn't supported in this browser. Enter the barcode number below.</div>`}
+    <label class="field" style="margin-top:8px"><span>Barcode number</span>
+      <input class="input" id="sc_code" inputmode="numeric" placeholder="e.g. 737628064502"></label>
+    <button class="btn primary block" id="sc_lookup">Look up</button>`;
+
+  const lookup=(code)=>{
+    $('sc_status') && ($('sc_status').textContent='Looking up '+code+'…');
+    offBarcode(code).then(food=>{
+      if(food){ stopScan(); portionFood(food, meal); }
+      else toast('Product not found');
+    }).catch(()=> toast('Lookup failed (offline?)'));
+  };
+  onTapSafe($('sc_lookup'), ()=>{ const c=$('sc_code').value.trim(); if(c) lookup(c); });
+
+  if(supported) startScan(lookup);
+}
+let _scanStream=null, _scanRAF=null;
+function stopScan(){
+  if(_scanRAF) cancelAnimationFrame(_scanRAF), _scanRAF=null;
+  if(_scanStream){ _scanStream.getTracks().forEach(t=>t.stop()); _scanStream=null; }
+}
+async function startScan(onCode){
+  try{
+    const detector = new window.BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128']});
+    _scanStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+    const v=$('sc_video'); if(!v){ stopScan(); return; }
+    v.srcObject=_scanStream; await v.play();
+    let done=false;
+    const tick=async()=>{
+      if(done || !$('sc_video')){ return; }
+      try{ const codes=await detector.detect(v);
+        if(codes && codes.length){ done=true; buzz(40); onCode(codes[0].rawValue); return; }
+      }catch(e){}
+      _scanRAF=requestAnimationFrame(tick);
+    };
+    tick();
+  }catch(e){ const st=$('sc_status'); if(st) st.textContent='Camera unavailable — enter the barcode manually.'; }
+}
+// Stop the camera whenever the add-food sheet closes.
+(function(){ const orig=Sheet.close.bind(Sheet); Sheet.close=function(){ stopScan(); orig(); }; })();
+
 /* ---- CALENDAR ---- */
 let calMonth = (()=>{ const d=new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); })();
 let calSel = todayISO();
@@ -651,6 +1003,17 @@ function settingsSheet(){
         <div class="seg" id="st_units"><button data-u="lb" class="${s.units!=='kg'?'active':''}">lb</button><button data-u="kg" class="${s.units==='kg'?'active':''}">kg</button></div></label>
     </div>
 
+    <div class="sectiontitle">Nutrition goals</div>
+    <div class="card">
+      <label class="field"><span>Daily calories</span><input class="input" id="st_kcal" type="number" inputmode="numeric" value="${s.kcalGoal}"></label>
+      <div class="row" style="gap:8px">
+        <label class="field" style="flex:1"><span>Protein g</span><input class="input" id="st_p" type="number" value="${s.proteinGoal}"></label>
+        <label class="field" style="flex:1"><span>Carbs g</span><input class="input" id="st_c" type="number" value="${s.carbsGoal}"></label>
+        <label class="field" style="flex:1"><span>Fat g</span><input class="input" id="st_f" type="number" value="${s.fatGoal}"></label>
+      </div>
+      <label class="field"><span>Water goal (ml)</span><input class="input" id="st_water" type="number" inputmode="numeric" value="${s.waterGoal}"></label>
+    </div>
+
     <button class="btn green block" id="st_test">▶ Test sound</button>
   `, ()=>{
     const toggle=(id,key)=>{ $(id).onclick=()=>{ const cur=Settings.get()[key]!==false; Settings.set({[key]:!cur}); $(id).classList.toggle('on',!cur); }; };
@@ -662,6 +1025,12 @@ function settingsSheet(){
     const refreshLead=()=> $('st_lead').textContent=(Settings.get().leadIn|0)+'s';
     $('st_leadDn').onclick=()=>{ Settings.set({leadIn:Math.max(0,(Settings.get().leadIn|0)-5)}); refreshLead(); };
     $('st_leadUp').onclick=()=>{ Settings.set({leadIn:(Settings.get().leadIn|0)+5}); refreshLead(); };
+    // Nutrition goals
+    $('st_kcal').oninput = ()=> Settings.set({kcalGoal:+$('st_kcal').value||0});
+    $('st_p').oninput = ()=> Settings.set({proteinGoal:+$('st_p').value||0});
+    $('st_c').oninput = ()=> Settings.set({carbsGoal:+$('st_c').value||0});
+    $('st_f').oninput = ()=> Settings.set({fatGoal:+$('st_f').value||0});
+    $('st_water').oninput = ()=> Settings.set({waterGoal:+$('st_water').value||0});
     $('st_test').onclick=()=>{ Sound.arm(); Sound.go(); if(Settings.get().vibrate!==false) buzz(60); if(Settings.get().flash!==false) flash('#3ec46d',220); setTimeout(()=>Sound.stop(),1200); };
   });
 }
@@ -737,7 +1106,9 @@ function backupSheet(){
         const obj = JSON.parse(r.result);
         if(!obj.wods||!obj.lifts) throw 0;
         if(confirm('Replace all data on this device with the backup?')){
-          DB.data = {wods:obj.wods, lifts:obj.lifts, bw:obj.bw||[]}; DB.save(); Sheet.close(); render(); toast('Data restored');
+          DB.data = {wods:obj.wods, lifts:obj.lifts, bw:obj.bw||[],
+            food:obj.food||[], water:obj.water||[], customFoods:obj.customFoods||[], meals:obj.meals||[]};
+          DB.save(); Sheet.close(); render(); toast('Data restored');
         }
       }catch(err){ toast('Invalid backup file'); } };
       r.readAsText(file);

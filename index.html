@@ -152,6 +152,39 @@
   .swipe-hint{font-size:11px;color:var(--muted);text-align:center;margin-top:-4px;margin-bottom:8px}
   .install-banner{background:var(--card2);border:1px dashed var(--accent);border-radius:12px;padding:12px;margin-bottom:12px;font-size:13px}
 
+  /* ---------------------- Nutrition ---------------------- */
+  .date-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  .date-nav .d{font-weight:800;font-size:15px}
+  .cal-ring-wrap{display:flex;align-items:center;gap:16px}
+  .cal-ring{flex:none}
+  .macro-rows{flex:1;display:flex;flex-direction:column;gap:8px;min-width:0}
+  .macro{}
+  .macro .top{display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px}
+  .macro .top .v{color:var(--muted)}
+  .macro .track{height:8px;border-radius:5px;background:var(--card2);overflow:hidden}
+  .macro .fill{height:100%;border-radius:5px}
+  .macro.p .fill{background:#5b9cf0} .macro.c .fill{background:#f0c14b} .macro.f .fill{background:#e87a4c}
+  .kcal-center{text-align:center}
+  .kcal-center .n{font-size:22px;font-weight:800;line-height:1}
+  .kcal-center .l{font-size:10px;color:var(--muted)}
+  .meal-head{display:flex;align-items:center;justify-content:space-between;margin:16px 4px 6px}
+  .meal-head .t{font-weight:800}
+  .meal-head .k{font-size:12px;color:var(--muted)}
+  .meal-head .add{background:var(--card2);border:1px solid var(--line);color:var(--accent);border-radius:8px;width:30px;height:30px;font-size:18px}
+  .food-item{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px}
+  .food-item .grow{flex:1;min-width:0}
+  .food-item .title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .food-item .sub{font-size:12px;color:var(--muted)}
+  .food-item .kcal{font-weight:700;flex:none}
+  .water-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .water-btn{background:var(--card2);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:8px 12px;font-weight:700;font-size:13px}
+  .search-result{padding:10px;border-bottom:1px solid var(--line)}
+  .search-result .title{font-weight:600}
+  .search-result .sub{font-size:12px;color:var(--muted)}
+  .seg.sm button{padding:6px 8px;font-size:12px}
+  .scanbox{width:100%;border-radius:12px;background:#000;overflow:hidden;aspect-ratio:4/3}
+  .scanbox video{width:100%;height:100%;object-fit:cover}
+
   /* ---------------------- Landscape support ---------------------- */
   @media (orientation: landscape) and (max-height: 520px){
     /* Constrain general content width and center it for readability. */
