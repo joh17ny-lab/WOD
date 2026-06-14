@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+<meta name="theme-color" content="#0b0f14" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="WODBook" />
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="icons/icon-180.png" />
+<title>WODBook</title>
+<style>
+  :root{
+    --bg:#0b0f14; --bg2:#121823; --card:#1a2230; --card2:#222c3d;
+    --txt:#eef2f7; --muted:#8d9bb0; --line:#2a3546;
+    --accent:#e87a4c; --accent2:#f0a06a; --green:#3ec46d; --orange:#f0a23a;
+    --danger:#e5564b; --rx:#e87a4c;
+    --safe-top:env(safe-area-inset-top); --safe-bot:env(safe-area-inset-bottom);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    overscroll-behavior-y:none; -webkit-user-select:none; user-select:none;
+  }
+  input,textarea,select{font-family:inherit; -webkit-user-select:text; user-select:text}
+  button{font-family:inherit; cursor:pointer}
+
+  /* Layout */
+  #app{display:flex;flex-direction:column;height:100vh;height:100dvh}
+  header.topbar{
+    padding:calc(var(--safe-top) + 10px) 16px 10px; background:var(--bg);
+    display:flex;align-items:center;justify-content:space-between;
+    border-bottom:1px solid var(--line); position:sticky;top:0;z-index:5
+  }
+  header.topbar h1{font-size:20px;margin:0;font-weight:800;letter-spacing:.3px}
+  header.topbar .actions{display:flex;gap:8px}
+  main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 14px 90px}
+
+  nav.tabbar{
+    position:fixed;bottom:0;left:0;right:0;z-index:10;
+    display:flex;background:rgba(11,15,20,.92);backdrop-filter:blur(12px);
+    border-top:1px solid var(--line);
+    padding-bottom:var(--safe-bot)
+  }
+  nav.tabbar button{
+    flex:1;background:none;border:none;color:var(--muted);
+    padding:8px 2px 6px;font-size:10px;display:flex;flex-direction:column;
+    align-items:center;gap:3px;font-weight:600
+  }
+  nav.tabbar button .ic{font-size:20px;line-height:1}
+  nav.tabbar button.active{color:var(--accent)}
+
+  /* Components */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+  .card h2,.card h3{margin:0 0 8px}
+  .muted{color:var(--muted)}
+  .row{display:flex;align-items:center;gap:10px}
+  .between{justify-content:space-between}
+  .pill{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--accent);color:#1a0f08}
+  .pill.ghost{background:var(--card2);color:var(--muted)}
+  .tag{font-size:12px;color:var(--muted)}
+  .big{font-size:15px;font-weight:700}
+  .sectiontitle{font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:18px 4px 8px;font-weight:700}
+
+  .btn{background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-weight:700;font-size:14px}
+  .btn.primary{background:var(--accent);color:#1a0f08;border-color:transparent}
+  .btn.green{background:var(--green);color:#06210f;border-color:transparent}
+  .btn.ghost{background:transparent}
+  .btn.danger{background:transparent;color:var(--danger);border-color:var(--danger)}
+  .btn.block{width:100%}
+  .btn.sm{padding:6px 10px;font-size:13px}
+  .iconbtn{background:var(--card2);border:1px solid var(--line);color:var(--txt);width:38px;height:38px;border-radius:10px;font-size:18px;display:grid;place-items:center}
+
+  .list .item{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px;display:flex;align-items:center;gap:12px}
+  .list .item .lead{width:34px;height:34px;border-radius:9px;background:var(--card2);display:grid;place-items:center;font-size:18px;flex:none}
+  .list .item .grow{flex:1;min-width:0}
+  .list .item .title{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .list .item .sub{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .list .item .trail{text-align:right;flex:none}
+
+  label.field{display:block;margin-bottom:12px}
+  label.field > span{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;font-weight:600}
+  label.field > span span{display:inline;font-size:inherit;color:inherit;margin:0}
+  .input,select.input,textarea.input{
+    width:100%;background:var(--bg2);border:1px solid var(--line);border-radius:10px;
+    color:var(--txt);padding:11px 12px;font-size:16px
+  }
+  textarea.input{min-height:80px;resize:vertical}
+  .seg{display:flex;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:3px;gap:3px;overflow:auto}
+  .seg button{flex:1;white-space:nowrap;background:none;border:none;color:var(--muted);padding:8px 10px;border-radius:8px;font-weight:700;font-size:13px}
+  .seg button.active{background:var(--accent);color:#1a0f08}
+  .toggle{display:flex;align-items:center;justify-content:space-between}
+  .switch{width:50px;height:30px;border-radius:999px;background:var(--line);position:relative;transition:.2s;border:none}
+  .switch.on{background:var(--green)}
+  .switch::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:.2s}
+  .switch.on::after{left:23px}
+
+  .empty{text-align:center;color:var(--muted);padding:50px 20px}
+  .empty .ic{font-size:46px;opacity:.5}
+
+  /* Sheet / modal */
+  .sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:50;opacity:0;pointer-events:none;transition:.2s}
+  .sheet-bg.show{opacity:1;pointer-events:auto}
+  .sheet{position:fixed;left:0;right:0;bottom:0;z-index:51;background:var(--bg2);
+    border-radius:18px 18px 0 0;border-top:1px solid var(--line);
+    transform:translateY(100%);transition:transform .25s ease;max-height:92vh;display:flex;flex-direction:column}
+  .sheet.show{transform:translateY(0)}
+  .sheet header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line)}
+  .sheet header h3{margin:0;font-size:17px}
+  .sheet .body{overflow-y:auto;padding:16px;padding-bottom:calc(20px + var(--safe-bot))}
+
+  /* Charts */
+  .bars{display:flex;align-items:flex-end;gap:8px;height:160px;padding-top:10px}
+  .bars .b{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0}
+  .bars .b .bar{width:70%;background:var(--accent);border-radius:6px 6px 0 0;min-height:3px}
+  .bars .b .lbl{font-size:10px;color:var(--muted);white-space:nowrap}
+  .bars .b .val{font-size:10px;color:var(--muted)}
+  svg.line{width:100%;height:170px;display:block}
+  .stat-grid{display:flex;gap:10px}
+  .stat{flex:1;background:var(--card2);border-radius:12px;padding:12px;text-align:center}
+  .stat .n{font-size:22px;font-weight:800}
+  .stat .l{font-size:11px;color:var(--muted)}
+
+  /* Calendar */
+  .cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+  .cal-grid .dow{text-align:center;font-size:10px;color:var(--muted);padding:4px 0}
+  .cal-cell{aspect-ratio:1;border-radius:9px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:14px;background:transparent;border:1px solid transparent;color:var(--txt)}
+  .cal-cell.muted{color:var(--line)}
+  .cal-cell.sel{background:rgba(232,122,76,.18);border-color:var(--accent)}
+  .cal-cell.today{border-color:var(--accent)}
+  .cal-cell .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);margin-top:3px}
+
+  /* Timer */
+  .clock{font-size:84px;font-weight:800;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:2px;line-height:1.05}
+  .clock.work{color:var(--green)} .clock.rest{color:var(--orange)} .clock.done{color:var(--accent)}
+  .phase{text-align:center;font-weight:800;letter-spacing:2px;margin-top:4px}
+  .timer-controls{display:flex;gap:10px;margin-top:18px}
+  .timer-controls .btn{flex:1;padding:16px;font-size:16px}
+  .stepper{display:flex;align-items:center;justify-content:space-between;padding:8px 0}
+  .stepper .ctl{display:flex;align-items:center;gap:12px}
+  .stepper .ctl button{width:34px;height:34px;border-radius:9px;border:1px solid var(--line);background:var(--card2);color:var(--txt);font-size:20px}
+
+  /* ---------------------- Scroll wheel picker ---------------------- */
+  .wheels{display:flex;align-items:stretch;justify-content:center;gap:4px;position:relative;
+    background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:6px 4px;
+    overflow-x:hidden;max-width:100%;touch-action:pan-y}
+  .wheel-col{display:flex;flex-direction:column;align-items:center;flex:1;min-width:0}
+  .wheel-col .wlabel{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}
+  .wheel{--ih:40px;height:calc(var(--ih)*5);overflow-y:scroll;overflow-x:hidden;scroll-snap-type:y mandatory;
+    -webkit-overflow-scrolling:touch;width:100%;position:relative;scrollbar-width:none;
+    touch-action:pan-y;overscroll-behavior:contain;mask-image:linear-gradient(to bottom,transparent,#000 22%,#000 78%,transparent)}
+  .wheel::-webkit-scrollbar{display:none}
+  .wheel .pad{height:calc(var(--ih)*2)}
+  .wheel .opt{height:var(--ih);line-height:var(--ih);text-align:center;scroll-snap-align:center;
+    font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--muted);transition:color .12s,transform .12s}
+  .wheel .opt.sel{color:var(--txt);transform:scale(1.05)}
+  .wheels .sep{align-self:center;font-size:24px;font-weight:800;color:var(--txt);padding:0 2px}
+  .wheels .hl{position:absolute;left:6px;right:6px;top:50%;transform:translateY(-50%);height:40px;
+    border-top:1px solid var(--line);border-bottom:1px solid var(--line);pointer-events:none;border-radius:8px;background:rgba(232,122,76,.08)}
+  .splits{display:flex;gap:8px;overflow:auto;padding:6px 0}
+  .splits .s{background:var(--card2);border-radius:9px;padding:6px 10px;text-align:center;flex:none}
+  .splits .s .k{font-size:10px;color:var(--muted)} .splits .s .v{font-weight:700;font-variant-numeric:tabular-nums}
+
+  .toast{position:fixed;bottom:calc(80px + var(--safe-bot));left:50%;transform:translateX(-50%);background:var(--card2);border:1px solid var(--line);padding:10px 16px;border-radius:999px;z-index:99;font-size:13px;font-weight:600;opacity:0;transition:.2s}
+  .toast.show{opacity:1}
+  .swipe-hint{font-size:11px;color:var(--muted);text-align:center;margin-top:-4px;margin-bottom:8px}
+  .install-banner{background:var(--card2);border:1px dashed var(--accent);border-radius:12px;padding:12px;margin-bottom:12px;font-size:13px}
+
+  /* ---------------------- Nutrition ---------------------- */
+  .date-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  .date-nav .d{font-weight:800;font-size:15px}
+  .cal-ring-wrap{display:flex;align-items:center;gap:16px}
+  .cal-ring{flex:none}
+  .macro-rows{flex:1;display:flex;flex-direction:column;gap:8px;min-width:0}
+  .macro{}
+  .macro .top{display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px}
+  .macro .top .v{color:var(--muted)}
+  .macro .track{height:8px;border-radius:5px;background:var(--card2);overflow:hidden}
+  .macro .fill{height:100%;border-radius:5px}
+  .macro.p .fill{background:#5b9cf0} .macro.c .fill{background:#f0c14b} .macro.f .fill{background:#e87a4c}
+  .kcal-center{text-align:center}
+  .kcal-center .n{font-size:22px;font-weight:800;line-height:1}
+  .kcal-center .l{font-size:10px;color:var(--muted)}
+  .meal-head{display:flex;align-items:center;justify-content:space-between;margin:16px 4px 6px}
+  .meal-head .t{font-weight:800}
+  .meal-head .k{font-size:12px;color:var(--muted)}
+  .meal-head .add{background:var(--card2);border:1px solid var(--line);color:var(--accent);border-radius:8px;width:30px;height:30px;font-size:18px}
+  .food-item{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px}
+  .food-item .grow{flex:1;min-width:0}
+  .food-item .title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .food-item .sub{font-size:12px;color:var(--muted)}
+  .food-item .kcal{font-weight:700;flex:none}
+  .water-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .water-btn{background:var(--card2);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:8px 12px;font-weight:700;font-size:13px}
+  .search-result{padding:10px;border-bottom:1px solid var(--line)}
+  .search-result .title{font-weight:600}
+  .search-result .sub{font-size:12px;color:var(--muted)}
+  .seg.sm button{padding:6px 8px;font-size:12px}
+  .scanbox{width:100%;border-radius:12px;background:#000;overflow:hidden;aspect-ratio:4/3}
+  .scanbox video{width:100%;height:100%;object-fit:cover}
+
+  /* ---------------------- Landscape support ---------------------- */
+  @media (orientation: landscape) and (max-height: 520px){
+    /* Constrain general content width and center it for readability. */
+    main{padding:12px 16px 80px}
+    main > *{max-width:760px;margin-left:auto;margin-right:auto}
+    nav.tabbar button{padding:6px 2px 4px}
+    nav.tabbar button .ic{font-size:18px}
+
+    /* Calendar stays usable but a bit tighter. */
+    .cal-cell{font-size:13px}
+  }
+
+  /* Timer: landscape shows ONLY the big clock + controls (settings hidden). */
+  body.timer-active.landscape main{padding-bottom:12px}
+  @media (orientation: landscape) and (max-height: 600px){
+    /* Single centered column — config/setup is omitted from the DOM in JS. */
+    .tm-land-clock{display:flex;flex-direction:column;justify-content:center;align-items:center;
+      height:calc(100dvh - 60px);max-width:100%!important;gap:8px}
+    .tm-summary{font-size:15px;font-weight:800;letter-spacing:1.5px;color:var(--accent);text-transform:uppercase}
+    .tm-land-clock .clock{font-size:24vw;line-height:.92;margin:0}
+    .tm-land-clock .phase{font-size:20px}
+    .tm-land-clock #tm_round{font-size:18px}
+    .tm-land-clock .timer-controls{margin-top:10px;width:min(560px,90vw)}
+    .tm-land-clock .timer-controls .btn{padding:14px}
+    /* Hide tab bar while a landscape timer is running to maximize the clock. */
+    body.timer-running.landscape nav.tabbar{display:none}
+    body.timer-running.landscape main{padding-bottom:14px}
+    body.timer-running.landscape .tm-land-clock{height:calc(100dvh - 24px)}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <h1 id="screenTitle">Log</h1>
+    <div class="actions" id="topActions"></div>
+  </header>
+  <main id="screen"></main>
+  <nav class="tabbar" id="tabbar"></nav>
+</div>
+
+<div class="sheet-bg" id="sheetBg"></div>
+<div class="sheet" id="sheet">
+  <header><h3 id="sheetTitle"></h3><button class="btn ghost sm" id="sheetClose">Close</button></header>
+  <div class="body" id="sheetBody"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').then(reg => {
+        // When a new version is found, activate it and reload once so the
+        // installed app picks up updates automatically.
+        reg.addEventListener('updatefound', () => {
+          const nw = reg.installing;
+          if (!nw) return;
+          nw.addEventListener('statechange', () => {
+            if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+              nw.postMessage && nw.postMessage('skipWaiting');
+            }
+          });
+        });
+      }).catch(()=>{});
+      let reloaded = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloaded) return; reloaded = true; window.location.reload();
+      });
+    });
+  }
+</script>
+</body>
+</html>

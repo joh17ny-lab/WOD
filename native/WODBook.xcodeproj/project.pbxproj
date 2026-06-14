@@ -1,0 +1,418 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A1000010 /* WODBookApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000001 /* WODBookApp.swift */; };
+		A1000011 /* RootTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000002 /* RootTabView.swift */; };
+		A1000012 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000003 /* HistoryView.swift */; };
+		A1000013 /* WODEditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000004 /* WODEditView.swift */; };
+		A1000014 /* BenchmarkListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000005 /* BenchmarkListView.swift */; };
+		A1000015 /* LiftListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000006 /* LiftListView.swift */; };
+		A1000016 /* LiftEditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000007 /* LiftEditView.swift */; };
+		A1000017 /* MovementLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000008 /* MovementLibraryView.swift */; };
+		A1000018 /* CalendarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000009 /* CalendarView.swift */; };
+		A100001A /* ProgressDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000A /* ProgressDashboardView.swift */; };
+		A100001B /* WODEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000B /* WODEntry.swift */; };
+		A100001C /* LiftPR.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000C /* LiftPR.swift */; };
+		A100001D /* Movement.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000D /* Movement.swift */; };
+		A100001E /* Benchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000E /* Benchmark.swift */; };
+		A100001F /* SeedData.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000F /* SeedData.swift */; };
+		A1000021 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000020 /* Assets.xcassets */; };
+		A1000101 /* TimerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000100 /* TimerEngine.swift */; };
+		A1000103 /* SoundPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000102 /* SoundPlayer.swift */; };
+		A1000105 /* TimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000104 /* TimerView.swift */; };
+		A1000210 /* MacroTargets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000200 /* MacroTargets.swift */; };
+		A1000211 /* FoodEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000201 /* FoodEntry.swift */; };
+		A1000212 /* MacroTargetsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000202 /* MacroTargetsView.swift */; };
+		A1000213 /* FoodEditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000203 /* FoodEditView.swift */; };
+		A1000214 /* NutritionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000204 /* NutritionView.swift */; };
+		A1000310 /* HealthKitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000300 /* HealthKitManager.swift */; };
+		A1000311 /* ActivityFileParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000301 /* ActivityFileParser.swift */; };
+		A1000312 /* HealthActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000302 /* HealthActivityView.swift */; };
+		A1000313 /* ActivityImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000303 /* ActivityImportView.swift */; };
+		A1000410 /* BodyMass.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000400 /* BodyMass.swift */; };
+		A1000411 /* BodyweightView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000401 /* BodyweightView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A1000001 /* WODBookApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WODBookApp.swift; sourceTree = "<group>"; };
+		A1000002 /* RootTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabView.swift; sourceTree = "<group>"; };
+		A1000003 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
+		A1000004 /* WODEditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WODEditView.swift; sourceTree = "<group>"; };
+		A1000005 /* BenchmarkListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkListView.swift; sourceTree = "<group>"; };
+		A1000006 /* LiftListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiftListView.swift; sourceTree = "<group>"; };
+		A1000007 /* LiftEditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiftEditView.swift; sourceTree = "<group>"; };
+		A1000008 /* MovementLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MovementLibraryView.swift; sourceTree = "<group>"; };
+		A1000009 /* CalendarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarView.swift; sourceTree = "<group>"; };
+		A100000A /* ProgressDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressDashboardView.swift; sourceTree = "<group>"; };
+		A100000B /* WODEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WODEntry.swift; sourceTree = "<group>"; };
+		A100000C /* LiftPR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiftPR.swift; sourceTree = "<group>"; };
+		A100000D /* Movement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Movement.swift; sourceTree = "<group>"; };
+		A100000E /* Benchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Benchmark.swift; sourceTree = "<group>"; };
+		A100000F /* SeedData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeedData.swift; sourceTree = "<group>"; };
+		A1000020 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A1000030 /* WODBook.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WODBook.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1000100 /* TimerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimerEngine.swift; sourceTree = "<group>"; };
+		A1000102 /* SoundPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundPlayer.swift; sourceTree = "<group>"; };
+		A1000104 /* TimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimerView.swift; sourceTree = "<group>"; };
+		A1000110 /* WODBook.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WODBook.entitlements; sourceTree = "<group>"; };
+		A1000200 /* MacroTargets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacroTargets.swift; sourceTree = "<group>"; };
+		A1000201 /* FoodEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoodEntry.swift; sourceTree = "<group>"; };
+		A1000202 /* MacroTargetsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacroTargetsView.swift; sourceTree = "<group>"; };
+		A1000203 /* FoodEditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoodEditView.swift; sourceTree = "<group>"; };
+		A1000204 /* NutritionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NutritionView.swift; sourceTree = "<group>"; };
+		A1000300 /* HealthKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitManager.swift; sourceTree = "<group>"; };
+		A1000301 /* ActivityFileParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityFileParser.swift; sourceTree = "<group>"; };
+		A1000302 /* HealthActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthActivityView.swift; sourceTree = "<group>"; };
+		A1000303 /* ActivityImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityImportView.swift; sourceTree = "<group>"; };
+		A1000400 /* BodyMass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyMass.swift; sourceTree = "<group>"; };
+		A1000401 /* BodyweightView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyweightView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A1000040 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A1000050 = {
+			isa = PBXGroup;
+			children = (
+				A1000051 /* WODBook */,
+				A1000052 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A1000052 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A1000030 /* WODBook.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A1000051 /* WODBook */ = {
+			isa = PBXGroup;
+			children = (
+				A1000001 /* WODBookApp.swift */,
+				A1000060 /* Models */,
+				A1000061 /* Views */,
+				A1000063 /* Timer */,
+				A1000064 /* Health */,
+				A1000062 /* Data */,
+				A1000020 /* Assets.xcassets */,
+				A1000110 /* WODBook.entitlements */,
+			);
+			path = WODBook;
+			sourceTree = "<group>";
+		};
+		A1000063 /* Timer */ = {
+			isa = PBXGroup;
+			children = (
+				A1000100 /* TimerEngine.swift */,
+				A1000102 /* SoundPlayer.swift */,
+				A1000104 /* TimerView.swift */,
+			);
+			path = Timer;
+			sourceTree = "<group>";
+		};
+		A1000064 /* Health */ = {
+			isa = PBXGroup;
+			children = (
+				A1000300 /* HealthKitManager.swift */,
+				A1000301 /* ActivityFileParser.swift */,
+			);
+			path = Health;
+			sourceTree = "<group>";
+		};
+		A1000060 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				A100000B /* WODEntry.swift */,
+				A100000C /* LiftPR.swift */,
+				A100000D /* Movement.swift */,
+				A100000E /* Benchmark.swift */,
+				A1000200 /* MacroTargets.swift */,
+				A1000201 /* FoodEntry.swift */,
+				A1000400 /* BodyMass.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		A1000061 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				A1000002 /* RootTabView.swift */,
+				A1000003 /* HistoryView.swift */,
+				A1000004 /* WODEditView.swift */,
+				A1000005 /* BenchmarkListView.swift */,
+				A1000006 /* LiftListView.swift */,
+				A1000007 /* LiftEditView.swift */,
+				A1000008 /* MovementLibraryView.swift */,
+				A1000009 /* CalendarView.swift */,
+				A100000A /* ProgressDashboardView.swift */,
+				A1000202 /* MacroTargetsView.swift */,
+				A1000203 /* FoodEditView.swift */,
+				A1000204 /* NutritionView.swift */,
+				A1000302 /* HealthActivityView.swift */,
+				A1000303 /* ActivityImportView.swift */,
+				A1000401 /* BodyweightView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		A1000062 /* Data */ = {
+			isa = PBXGroup;
+			children = (
+				A100000F /* SeedData.swift */,
+			);
+			path = Data;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A1000070 /* WODBook */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1000080 /* Build configuration list for PBXNativeTarget "WODBook" */;
+			buildPhases = (
+				A1000090 /* Sources */,
+				A1000040 /* Frameworks */,
+				A10000A0 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = WODBook;
+			productName = WODBook;
+			productReference = A1000030 /* WODBook.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A10000B0 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					A1000070 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = A10000C0 /* Build configuration list for PBXProject "WODBook" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A1000050;
+			productRefGroup = A1000052 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A1000070 /* WODBook */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A10000A0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000021 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A1000090 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000010 /* WODBookApp.swift in Sources */,
+				A1000011 /* RootTabView.swift in Sources */,
+				A1000012 /* HistoryView.swift in Sources */,
+				A1000013 /* WODEditView.swift in Sources */,
+				A1000014 /* BenchmarkListView.swift in Sources */,
+				A1000015 /* LiftListView.swift in Sources */,
+				A1000016 /* LiftEditView.swift in Sources */,
+				A1000017 /* MovementLibraryView.swift in Sources */,
+				A1000018 /* CalendarView.swift in Sources */,
+				A100001A /* ProgressDashboardView.swift in Sources */,
+				A100001B /* WODEntry.swift in Sources */,
+				A100001C /* LiftPR.swift in Sources */,
+				A100001D /* Movement.swift in Sources */,
+				A100001E /* Benchmark.swift in Sources */,
+				A100001F /* SeedData.swift in Sources */,
+				A1000101 /* TimerEngine.swift in Sources */,
+				A1000103 /* SoundPlayer.swift in Sources */,
+				A1000105 /* TimerView.swift in Sources */,
+				A1000210 /* MacroTargets.swift in Sources */,
+				A1000211 /* FoodEntry.swift in Sources */,
+				A1000212 /* MacroTargetsView.swift in Sources */,
+				A1000213 /* FoodEditView.swift in Sources */,
+				A1000214 /* NutritionView.swift in Sources */,
+				A1000310 /* HealthKitManager.swift in Sources */,
+				A1000311 /* ActivityFileParser.swift in Sources */,
+				A1000312 /* HealthActivityView.swift in Sources */,
+				A1000313 /* ActivityImportView.swift in Sources */,
+				A1000410 /* BodyMass.swift in Sources */,
+				A1000411 /* BodyweightView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A10000D0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		A10000D1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_OPTIMIZATION_LEVEL = s;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		A10000E0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = WODBook/WODBook.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UIBackgroundModes = (
+					"remote-notification",
+				);
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "WODBook reads your workouts and bodyweight from Apple Health to show them in your log and progress.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "WODBook can save workouts you log to Apple Health.";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.johnny.WODBook;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A10000E1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = WODBook/WODBook.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UIBackgroundModes = (
+					"remote-notification",
+				);
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "WODBook reads your workouts and bodyweight from Apple Health to show them in your log and progress.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "WODBook can save workouts you log to Apple Health.";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.johnny.WODBook;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A10000C0 /* Build configuration list for PBXProject "WODBook" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000D0 /* Debug */,
+				A10000D1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1000080 /* Build configuration list for PBXNativeTarget "WODBook" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000E0 /* Debug */,
+				A10000E1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A10000B0 /* Project object */;
+}
