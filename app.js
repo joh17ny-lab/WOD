@@ -30,7 +30,8 @@ function uid(){ return Date.now().toString(36) + Math.random().toString(36).slic
 const Settings = {
   KEY:'wodbook.settings.v1',
   _cache:null,
-  defaults:{ sound:true, vibrate:true, flash:true, leadIn:10, units:'lb', name:'' },
+  defaults:{ sound:true, vibrate:true, flash:true, keepAwake:true, leadIn:10, units:'lb',
+             name:'', bodyweight:null, dob:'', box:'' },
   get(){
     if(this._cache) return this._cache;
     let s={};
@@ -44,6 +45,27 @@ const Settings = {
     return this._cache;
   }
 };
+
+/* ---------------------- Keep screen awake (Wake Lock) ------------------- */
+const Wake = {
+  lock:null,
+  async on(){
+    if(Settings.get().keepAwake===false) return;
+    try{
+      if('wakeLock' in navigator && !this.lock){
+        this.lock = await navigator.wakeLock.request('screen');
+        this.lock.addEventListener('release', ()=>{ this.lock=null; });
+      }
+    }catch(e){ this.lock=null; }
+  },
+  async off(){
+    try{ if(this.lock){ await this.lock.release(); this.lock=null; } }catch(e){ this.lock=null; }
+  }
+};
+// Re-acquire the lock if iOS drops it when returning to the app mid-timer.
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState==='visible' && Timer.running) Wake.on();
+});
 
 /* ------------------------------ Seed data ------------------------------- */
 const WOD_TYPES = [
@@ -164,6 +186,7 @@ function render(){
   const t = TABS.find(t=>t.id===current);
   $('screenTitle').textContent = t.title;
   $('topActions').innerHTML = '';
+  if(current!=='timer'){ document.body.classList.remove('timer-active','timer-running'); }
   const fns = {log:Screens.log, bench:Screens.bench, lifts:Screens.lifts, timer:Screens.timer, cal:Screens.cal, more:Screens.more};
   fns[current]();
 }
@@ -457,14 +480,22 @@ function settingsSheet(){
   const s = Settings.get();
   const sw = (on)=>`switch ${on?'on':''}`;
   Sheet.open('Settings', `
-    <label class="field"><span>Your name (shown in the app)</span>
-      <input class="input" id="st_name" value="${esc(s.name||'')}" placeholder="Optional"></label>
+    <div class="sectiontitle">Profile</div>
+    <label class="field"><span>Name</span>
+      <input class="input" id="st_name" value="${esc(s.name||'')}" placeholder="Your name"></label>
+    <div class="row" style="gap:10px">
+      <label class="field" style="flex:1"><span>Bodyweight (${esc(s.units||'lb')})</span>
+        <input class="input" id="st_bw" type="number" inputmode="decimal" value="${s.bodyweight!=null?s.bodyweight:''}" placeholder="—"></label>
+      <label class="field" style="flex:1"><span>Box / Gym</span>
+        <input class="input" id="st_box" value="${esc(s.box||'')}" placeholder="Optional"></label>
+    </div>
 
     <div class="sectiontitle">Timer cues</div>
     <div class="card">
       <div class="toggle" style="margin-bottom:14px"><span>Sound</span><button class="${sw(s.sound!==false)}" id="st_sound"></button></div>
       <div class="toggle" style="margin-bottom:14px"><span>Vibration</span><button class="${sw(s.vibrate!==false)}" id="st_vib"></button></div>
-      <div class="toggle"><span>Screen flash</span><button class="${sw(s.flash!==false)}" id="st_flash"></button></div>
+      <div class="toggle" style="margin-bottom:14px"><span>Screen flash</span><button class="${sw(s.flash!==false)}" id="st_flash"></button></div>
+      <div class="toggle"><span>Keep screen awake</span><button class="${sw(s.keepAwake!==false)}" id="st_wake"></button></div>
     </div>
 
     <div class="sectiontitle">Defaults</div>
@@ -477,8 +508,10 @@ function settingsSheet(){
     <button class="btn green block" id="st_test">▶ Test sound</button>
   `, ()=>{
     const toggle=(id,key)=>{ $(id).onclick=()=>{ const cur=Settings.get()[key]!==false; Settings.set({[key]:!cur}); $(id).classList.toggle('on',!cur); }; };
-    toggle('st_sound','sound'); toggle('st_vib','vibrate'); toggle('st_flash','flash');
+    toggle('st_sound','sound'); toggle('st_vib','vibrate'); toggle('st_flash','flash'); toggle('st_wake','keepAwake');
     $('st_name').oninput = ()=> Settings.set({name:$('st_name').value.trim()});
+    $('st_box').oninput = ()=> Settings.set({box:$('st_box').value.trim()});
+    $('st_bw').oninput = ()=>{ const v=parseFloat($('st_bw').value); Settings.set({bodyweight: isNaN(v)?null:v}); };
     $('st_units').querySelectorAll('button').forEach(b=> b.onclick=()=>{ Settings.set({units:b.dataset.u}); $('st_units').querySelectorAll('button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); });
     const refreshLead=()=> $('st_lead').textContent=(Settings.get().leadIn|0)+'s';
     $('st_leadDn').onclick=()=>{ Settings.set({leadIn:Math.max(0,(Settings.get().leadIn|0)-5)}); refreshLead(); };
@@ -740,22 +773,26 @@ function runMywodImport(arrayBuffer){
   const existingLifts = new Set(DB.data.lifts.map(l=> (l.mywodKey||'') ));
 
   let addedW=0, addedL=0, skipped=0;
+  const debug = { cols: (sdb.tables.MyWODs && sdb.tables.MyWODs.cols) || [], sample: null };
 
   // ---- Workouts (MyWODs) ----
   const myw = sdb.rows('MyWODs');
+  if(myw[0]) debug.sample = { title: myw[0].title, scoreType: myw[0].scoreType, score: myw[0].score };
   for(const r of myw){
     if(r.deleted) continue;
     const key = 'w:'+(r.primaryClientID||'')+':'+(r.primaryRecordID||'');
     if(existingWods.has(key)){ skipped++; continue; }
     const dateMs = r.date ? isoToTs(String(r.date).slice(0,10)) : Date.now();
+    // Coerce every text field to a string so a numeric score (e.g. 18) still shows.
+    const asStr = (v)=> (v==null) ? '' : (typeof v==='string' ? v : String(v));
     DB.data.wods.push({
       id: uid(), createdAt: Date.now(), mywodKey: key,
-      title: r.title || 'Workout',
-      type: mywodType(r.scoreType),
-      details: r.description || '',
-      result: r.score || '',
+      title: asStr(r.title) || 'Workout',
+      type: mywodType(asStr(r.scoreType)),
+      details: asStr(r.description),
+      result: asStr(r.score),
       rxd: !!r.asPrescribed,
-      notes: (r.notes && r.notes!=='NA') ? r.notes : '',
+      notes: (asStr(r.notes) && r.notes!=='NA') ? asStr(r.notes) : '',
       date: dateMs,
       benchmarkName: null
     });
@@ -788,15 +825,50 @@ function runMywodImport(arrayBuffer){
     addedL++;
   }
 
+  // ---- Athlete profile ----
+  let profileMsg = '';
+  try{
+    const ath = sdb.rows('Athlete').filter(a=>!a.deleted)[0];
+    if(ath){
+      const units = ath.units===1 ? 'kg' : 'lb';
+      // myWOD stores weight in ounces; convert to lb, then to chosen unit.
+      let bw = null;
+      if(ath.weight){
+        const lb = Number(ath.weight)/16;
+        bw = units==='kg' ? Math.round(lb*0.45359237*10)/10 : Math.round(lb*10)/10;
+      }
+      const fullName = [ath.firstName, ath.lastName].filter(x=>x && x!=='N').join(' ').trim();
+      const patch = { units };
+      if(fullName) patch.name = fullName;
+      if(bw) patch.bodyweight = bw;
+      if(ath.dateOfBirth) patch.dob = String(ath.dateOfBirth).slice(0,10);
+      if(ath.boxName) patch.box = ath.boxName;
+      Settings.set(patch);
+      profileMsg = `<br>Profile updated${bw?` (bodyweight ${bw} ${units})`:''}.`;
+    }
+  }catch(e){}
+
   DB.save();
+  // Diagnostic preview: shows the parsed score for the first workout so we can
+  // confirm times are being read correctly on-device.
+  const sampleLine = debug.sample
+    ? `${esc(debug.sample.title||'?')} — ${esc(String(debug.sample.score||'(no score)'))}`
+    : '(no workouts found)';
+  const hasScoreCol = debug.cols.indexOf('score') !== -1;
   $('mw_status').innerHTML = `
     <div class="card" style="border-color:var(--green)">
       <b>Import complete ✅</b>
       <div class="tag" style="margin-top:6px">
         ${addedW} workout${addedW===1?'':'s'} and ${addedL} lift entr${addedL===1?'y':'ies'} added.
         ${skipped?`<br>${skipped} duplicate${skipped===1?'':'s'} skipped.`:''}
+        ${profileMsg}
       </div>
     </div>
+    <div class="card"><div class="tag">
+      <b>Diagnostic</b><br>
+      First workout read: <b>${sampleLine}</b><br>
+      Score column detected: ${hasScoreCol?'yes':'<span style="color:var(--danger)">NO</span>'}
+    </div></div>
     <button class="btn primary block" id="mw_done">Done</button>`;
   $('mw_done').onclick = ()=>{ Sheet.close(); render(); toast('myWOD data imported'); };
 }
@@ -818,6 +890,7 @@ const Timer = {
     if(this.running) return;
     if(this.phase==='idle'||this.phase==='finished') this.reset(true);
     Sound.arm();                                   // arm audio on user gesture
+    Wake.on();                                     // keep screen awake
     this.running=true;
     this.lead = Math.max(0, Settings.get().leadIn|0);  // pre-workout countdown
     if(this.lead > 0){
@@ -837,9 +910,9 @@ const Timer = {
     this.tick0();
     this.cueGo();                                  // audible GO for ALL modes
   },
-  pause(){ this.running=false; clearInterval(this.iv); this.iv=null; Sound.stop(); Screens.timer(); },
+  pause(){ this.running=false; clearInterval(this.iv); this.iv=null; Sound.stop(); Wake.off(); Screens.timer(); },
   reset(keep){ clearInterval(this.iv); this.iv=null; this.running=false; this.elapsed=0; this.round=0; this.splits=[]; this.lastBeep=-1; this.lead=0; this.phase='idle';
-    Sound.stop();
+    Sound.stop(); Wake.off();
     const c=this.cfg;
     this.display = this.mode==='AMRAP'?c.amrap : this.mode==='EMOM'?c.emomIv : this.mode==='Tabata'?c.work : (c.forTimeCap||0);
     Screens.timer(); },
@@ -899,7 +972,7 @@ const Timer = {
     this.updateClock();
   },
   finish(){ this.running=false; clearInterval(this.iv); this.iv=null; this.phase='finished';
-    this.cueFinish();
+    this.cueFinish(); Wake.off();
     setTimeout(()=>Sound.stop(), 2200);              // stop after the alarm plays out
     Screens.timer();
     setTimeout(()=>{ if(confirm('Workout done — log this result?')){
@@ -938,11 +1011,20 @@ Screens.timer = function(){
   let splitsHtml='';
   if(t.mode==='For Time'&&t.splits.length) splitsHtml = `<div class="splits">${t.splits.map((s,i)=>`<div class="s"><div class="k">R${i+1}</div><div class="v">${mmss(s)}</div></div>`).join('')}</div>`;
 
+  // Track body classes so CSS can adapt (landscape big-clock, hide tabs while running).
+  document.body.classList.add('timer-active');
+  document.body.classList.toggle('timer-running', t.running);
+
+  const landscape = document.body.classList.contains('landscape');
   const disabled = t.running?'style="opacity:.5;pointer-events:none"':'';
-  $('screen').innerHTML = `
+  const clockCls = t.phase==='work'?'work':t.phase==='rest'?'rest':t.phase==='finished'?'done':t.phase==='lead'?'rest':'';
+
+  const setupBlock = `
     <div class="seg" ${disabled} id="tm_modes" style="margin-bottom:12px">${modes.map(m=>`<button data-m="${m}" class="${m===t.mode?'active':''}">${m}</button>`).join('')}</div>
-    <div class="card" ${disabled}><div class="tag" style="margin-bottom:6px">${blurbs[t.mode]}</div>${cfgHtml||'<div class="tag">Stopwatch — no setup needed.</div>'}</div>
-    <div style="margin:24px 0 6px"><div class="clock ${t.phase==='work'?'work':t.phase==='rest'?'rest':t.phase==='finished'?'done':''}" id="tm_clock">${mmss(t.display)}</div>
+    <div class="card" ${disabled}><div class="tag" style="margin-bottom:6px">${blurbs[t.mode]}</div>${cfgHtml}</div>`;
+
+  const clockBlock = `
+    <div style="margin:10px 0 6px"><div class="clock ${clockCls}" id="tm_clock">${mmss(t.display)}</div>
       <div class="phase" id="tm_phase">${t.phaseLabel()}</div></div>
     <div class="big" style="text-align:center" id="tm_round">${t.roundLabel()}</div>
     ${splitsHtml}
@@ -951,6 +1033,17 @@ Screens.timer = function(){
       ${t.mode==='For Time'&&t.running?'<button class="btn" id="tm_round_btn">Round</button>':''}
       <button class="btn ${t.running?'':'primary'}" id="tm_go">${t.running?'Pause':'Start'}</button>
     </div>`;
+
+  if(landscape){
+    // Two columns: setup/round info on the left, giant clock + controls on the right.
+    $('screen').innerHTML = `
+      <div class="tm-land">
+        <div class="tm-right">${clockBlock}</div>
+        <div class="tm-left">${setupBlock}</div>
+      </div>`;
+  } else {
+    $('screen').innerHTML = setupBlock + clockBlock;
+  }
 
   if(!t.running){
     $('tm_modes').querySelectorAll('button').forEach(b=> b.onclick=()=>{ t.mode=b.dataset.m; t.reset(true); });
@@ -1085,7 +1178,16 @@ function bindLongPress(container, sel, onLong, onTap){
   });
 }
 
+/* ------------------------ Orientation tracking -------------------------- */
+function updateOrientationClass(){
+  const landscape = window.matchMedia('(orientation: landscape)').matches;
+  document.body.classList.toggle('landscape', landscape);
+}
+window.addEventListener('resize', ()=>{ updateOrientationClass(); if(current==='timer') Screens.timer(); });
+window.addEventListener('orientationchange', ()=>{ setTimeout(()=>{ updateOrientationClass(); if(current==='timer') Screens.timer(); }, 150); });
+
 /* ------------------------------- Boot ----------------------------------- */
 DB.load();
+updateOrientationClass();
 renderTabbar();
 render();

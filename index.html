@@ -150,6 +150,33 @@
   .toast.show{opacity:1}
   .swipe-hint{font-size:11px;color:var(--muted);text-align:center;margin-top:-4px;margin-bottom:8px}
   .install-banner{background:var(--card2);border:1px dashed var(--accent);border-radius:12px;padding:12px;margin-bottom:12px;font-size:13px}
+
+  /* ---------------------- Landscape support ---------------------- */
+  @media (orientation: landscape) and (max-height: 520px){
+    /* Constrain general content width and center it for readability. */
+    main{padding:12px 16px 80px}
+    main > *{max-width:760px;margin-left:auto;margin-right:auto}
+    nav.tabbar button{padding:6px 2px 4px}
+    nav.tabbar button .ic{font-size:18px}
+
+    /* Calendar stays usable but a bit tighter. */
+    .cal-cell{font-size:13px}
+  }
+
+  /* Timer: dedicated wide layout in landscape with a huge clock. */
+  body.timer-active.landscape main{padding-bottom:12px}
+  @media (orientation: landscape) and (max-height: 600px){
+    .tm-land{display:flex;gap:18px;align-items:stretch;max-width:100%!important}
+    .tm-land .tm-left{flex:1.4;display:flex;flex-direction:column;justify-content:center;min-width:0}
+    .tm-land .tm-right{flex:1;display:flex;flex-direction:column;justify-content:center;gap:10px;min-width:0}
+    .tm-land .clock{font-size:23vw;line-height:.95;margin:0}
+    .tm-land .phase{font-size:18px}
+    .tm-land .timer-controls{margin-top:6px}
+    .tm-land .timer-controls .btn{padding:14px}
+    /* Hide tab bar while a landscape timer is running to maximize the clock. */
+    body.timer-running.landscape nav.tabbar{display:none}
+    body.timer-running.landscape main{padding-bottom:14px}
+  }
 </style>
 </head>
 <body>
