@@ -2,9 +2,6 @@ name: Deploy PWA to GitHub Pages
 on:
   push:
     branches: [main]
-    paths:
-      - "pwa/**"
-      - ".github/workflows/deploy-pwa.yml"
   workflow_dispatch:
 permissions:
   contents: read
@@ -15,90 +12,15 @@ concurrency:
   cancel-in-progress: false
 jobs:
   deploy:
-    name: Build & Deploy
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-      - name: Upload PWA artifact
-        uses: actions/upload-pages-artifact@v3
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
         with:
           path: pwa
-      - name: Deploy to GitHub Pages
-        id: deployment
+      - id: deployment
         uses: actions/deploy-pages@v4
-4. Scroll down → Commit changes
----
-Just tell me what you see at that workflows link (which files are listed), and I'll give you the exact next click. Once deploy-pwa.yml exists and Settings → Pages → Source = GitHub Actions, the deploy runs and you'll get your live https://joh17ny-lab.github.io/WOD/ URL.
-▣  Code · claude-opus-4-8 · 6m 26s
-i do not see .github folder
-That's the key issue. The .github folder isn't showing — which means the workflows aren't on GitHub (or the folder is hidden in the file listing). But wait — earlier you told me the iOS build ran green under the Actions tab, which requires .github/workflows/ios-build.yml to exist on GitHub. So let me reconcile this.
-Two possibilities:
-1. The .github folder is there but you're not seeing it (GitHub sometimes lists it, sometimes it's easy to miss since it sorts at the top).
-2. It's genuinely missing and the green run you saw was something else.
-Let me give you a definitive check that doesn't rely on browsing folders.
-# Questions
-Open this exact link in your browser: https://github.com/joh17ny-lab/WOD/blob/main/.github/workflows/ios-build.yml  — what happens?
-404 / 'page not found'
-When you saw 'Build green, PWA green' earlier under the Actions tab — are you sure that was in THIS repo (joh17ny-lab/WOD)?
-Not certain
-That clears it up. The 404 confirms: .github was never uploaded to GitHub. GitHub's drag-and-drop upload silently skips folders starting with a dot (a very common gotcha) — exactly what I warned about earlier. So:
-- There's no workflow on GitHub → the iOS build never actually ran here, and Pages has nothing to deploy with.
-- The "green run" you saw earlier was probably a different repo or a misread — no harm.
-The fix is to create the workflow files directly in GitHub's web editor, which never skips dot-folders. Let's do the two files. Start with the one that matters for your goal (the PWA deploy).
-Create the PWA deploy workflow
-1. Go to github.com/joh17ny-lab/WOD
-2. Click Add file (button near the top-right) → Create new file
-3. In the filename box at the top, type exactly this (typing each / makes GitHub create the folders):
-      .github/workflows/deploy-pwa.yml
-   4. Paste this into the big text area:
-name: Deploy PWA to GitHub Pages
-on:
-  push:
-    branches: [main]
-    paths:
-      - "pwa/**"
-      - ".github/workflows/deploy-pwa.yml"
-  workflow_dispatch:
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-concurrency:
-  group: pages
-  cancel-in-progress: false
-jobs:
-  deploy:
-    name: Build & Deploy
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-      - name: Upload PWA artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: pwa
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
-5. Scroll down → Commit changes (green button) → confirm.
-Then enable Pages
-6. Repo → Settings → Pages (left sidebar)
-7. Build and deployment → Source → select GitHub Actions
-Then run it
-8. Repo → Actions tab → click Deploy PWA to GitHub Pages → Run workflow → Run workflow
-9. Wait ~1 min for green, then open:
-      https://joh17ny-lab.github.io/WOD/
-      in Safari (not the local file).
----
-    
