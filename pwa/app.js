@@ -2092,7 +2092,7 @@ function numWheel(id, label, val, min, max, step){
 // Make a wheel column scrollable + snapping; returns its current value via getter.
 function setupWheel(colId, onPick){
   const w=$(colId); if(!w) return null;
-  const ih = 40; // must match --ih in CSS
+  const ih = 32; // must match --ih in CSS
   const opts = Array.from(w.querySelectorAll('.opt'));
   const idxOf = (v)=> opts.findIndex(o=> +o.dataset.v === +v);
   const start = Math.max(0, idxOf(+w.dataset.sel));
