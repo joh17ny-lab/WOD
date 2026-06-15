@@ -1314,12 +1314,15 @@ function settingsSheet(){
       <label class="field" style="flex:1"><span>Box / Gym</span>
         <input class="input" id="st_box" value="${esc(s.box||'')}" placeholder="Optional"></label>
     </div>
+    <label class="field"><span>Sex</span>
+      <div class="seg" id="st_sex"><button data-x="male" class="${s.sex!=='female'?'active':''}">Male</button><button data-x="female" class="${s.sex==='female'?'active':''}">Female</button></div></label>
     <div class="row" style="gap:10px">
-      <label class="field" style="flex:1"><span>Sex</span>
-        <div class="seg" id="st_sex"><button data-x="male" class="${s.sex!=='female'?'active':''}">Male</button><button data-x="female" class="${s.sex==='female'?'active':''}">Female</button></div></label>
+      <label class="field" style="flex:1"><span>Height (ft)</span>
+        <input class="input" id="st_hft" type="number" inputmode="numeric" min="0" value="${s.heightIn!=null?Math.floor(s.heightIn/12):''}" placeholder="e.g. 5"></label>
       <label class="field" style="flex:1"><span>Height (in)</span>
-        <input class="input" id="st_h" type="number" inputmode="decimal" value="${s.heightIn!=null?s.heightIn:''}" placeholder="e.g. 67"></label>
+        <input class="input" id="st_hin" type="number" inputmode="numeric" min="0" max="11" value="${s.heightIn!=null?(s.heightIn%12):''}" placeholder="e.g. 7"></label>
     </div>
+    <div class="tag" id="st_hcap" style="margin:-4px 0 12px">${s.heightIn!=null?`Height: ${Math.floor(s.heightIn/12)}\u2032 ${Math.round(s.heightIn%12)}\u2033`:''}</div>
     <label class="field"><span>Date of birth</span><input class="input" type="date" id="st_dob" value="${esc(s.dob||'')}"></label>
 
     <div class="sectiontitle">Timer cues</div>
@@ -1373,7 +1376,19 @@ function settingsSheet(){
     $('st_name').oninput = ()=> Settings.set({name:$('st_name').value.trim()});
     $('st_box').oninput = ()=> Settings.set({box:$('st_box').value.trim()});
     $('st_bw').oninput = ()=>{ const v=parseFloat($('st_bw').value); Settings.set({bodyweight: isNaN(v)?null:v}); };
-    $('st_h').oninput = ()=>{ const v=parseFloat($('st_h').value); Settings.set({heightIn: isNaN(v)?null:v}); };
+    const updateHeight = ()=>{
+      const ftRaw = $('st_hft').value.trim();
+      const inRaw = $('st_hin').value.trim();
+      if(ftRaw==='' && inRaw===''){ Settings.set({heightIn:null}); $('st_hcap').textContent=''; return; }
+      const ft = parseInt(ftRaw,10) || 0;
+      const inch = parseFloat(inRaw) || 0;
+      const total = ft*12 + inch;
+      Settings.set({heightIn: total>0 ? total : null});
+      $('st_hcap').textContent = total>0
+        ? `Height: ${Math.floor(total/12)}\u2032 ${Math.round(total%12)}\u2033` : '';
+    };
+    $('st_hft').oninput = updateHeight;
+    $('st_hin').oninput = updateHeight;
     $('st_dob').oninput = ()=> Settings.set({dob:$('st_dob').value});
     $('st_sex').querySelectorAll('button').forEach(b=> b.onclick=()=>{ Settings.set({sex:b.dataset.x}); $('st_sex').querySelectorAll('button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); });
     $('st_units').querySelectorAll('button').forEach(b=> b.onclick=()=>{ Settings.set({units:b.dataset.u}); $('st_units').querySelectorAll('button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); });
