@@ -1959,8 +1959,8 @@ Screens.timer = function(){
   const blurbs={'For Time':'Count up. Tap “Round” to record splits.','AMRAP':'Count down from a set duration.','EMOM':'Every minute on the minute for N rounds.','Tabata':'Work / rest intervals repeated for N rounds.'};
   // Quick presets per mode — one tap to configure a common workout.
   const presets = {
-    'For Time': [['No cap',0],['10:00',600],['15:00',900],['20:00',1200]],
-    'AMRAP':    [['7:00',420],['12:00',720],['15:00',900],['20:00',1200]],
+    'For Time': [['No cap',0],['10:00',600],['15:00',900],['20:00',1200],['60:00',3600],['90:00',5400]],
+    'AMRAP':    [['7:00',420],['12:00',720],['15:00',900],['20:00',1200],['60:00',3600],['90:00',5400]],
     'EMOM':     [['10×1:00',{iv:60,r:10}],['12×1:00',{iv:60,r:12}],['20×1:00',{iv:60,r:20}],['10×0:90',{iv:90,r:10}]],
     'Tabata':   [['Classic 20/10×8',{w:20,r:10,n:8}],['30/15×8',{w:30,r:15,n:8}],['40/20×6',{w:40,r:20,n:6}]]
   };
@@ -2070,7 +2070,8 @@ function wheelColumn(id, values, selected){
 // mm:ss time wheel (minutes 0–59, seconds 0–59).
 function timeWheel(id, seconds){
   const m=Math.floor((seconds||0)/60), s=(seconds||0)%60;
-  const mins=[...Array(60).keys()], secs=[...Array(60).keys()];
+  // Minutes 0–90 so timers/caps can go up to 90:00; seconds 0–59.
+  const mins=[...Array(91).keys()], secs=[...Array(60).keys()];
   return `<div class="wheels" data-time="${id}">
       <div class="hl"></div>
       <div class="wheel-col"><div class="wlabel">min</div>${wheelColumn(id+'_m', mins, m)}</div>
