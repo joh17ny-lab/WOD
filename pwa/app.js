@@ -1675,7 +1675,11 @@ const MiniSQLite = (function(){
               nextPage = np;
             }
           }
-          out.push(parseRecord(recBuf, 0));
+          const rec = parseRecord(recBuf, 0);
+          // Attach the SQLite rowid so callers can build a guaranteed-unique key
+          // even when the table's declared PK columns repeat or are 0/null.
+          rec.__rowid = Number(rowid);
+          out.push(rec);
         }catch(e){}
       }
     }
@@ -1689,10 +1693,14 @@ const MiniSQLite = (function(){
         tables[r[1]] = { root: r[3], cols };
       }
     }
-    function rows(name){
+    function rows(name, withRowId){
       const t = tables[name]; if(!t) return [];
       const out = []; walk(t.root, out, 100000);
-      return out.map(r=>{ const o={}; t.cols.forEach((c,i)=> o[c]=r[i]); return o; });
+      return out.map(r=>{
+        const o={}; t.cols.forEach((c,i)=> o[c]=r[i]);
+        if(withRowId) o.__rowid = r.__rowid;
+        return o;
+      });
     }
     return { tables, rows };
   }
@@ -1732,6 +1740,93 @@ function matchBenchmarkName(title){
   const t = norm(title);
   const b = BENCHMARKS.find(x=> norm(x.name) === t);
   return b ? b.name : null;
+}
+
+// myWOD stores a workout's PRIOR attempts as free text inside the notes field.
+// Across the real backup the formats vary a lot, e.g.:
+//     Grace:        "12/7/20\nBW 167#\n\n2/13/19\nBW 157#\n3:33\n10/2/17\nBW 175#\n3:48"
+//     Cindy:        "11/7/15 16+21 RX"            (date → score+RX)
+//     CFG Open 15.2:"10:59 2/12/16"               (score → date)
+//     CFG Open 16.3:"12:26 RX 4/26/16"            (score+RX → date)
+//     CFG Open 16.4:"BW 173#  10/4/17"            (BW → date)
+//     Big Daddy:    "9/12/16 BW 175#"             (date → BW)
+//     Isabel:       "10/24/14 228"                (date → reps)
+//     Linda:        "3/2/2017 194 RX"             (4-digit year)
+//     Helen:        "Power cleans @155# 7/11/14 13 Rnds" (comment + date(mid) + score)
+//     The Chief:    "5/26/15 No 20# vest"         (date → free-text comment, no score)
+// The score can come BEFORE or AFTER the date, so for each date we look at the
+// surrounding window (bounded by neighboring dates) and pull a score/BW/RX from it.
+// Returns { attempts:[{date(iso),result,rxd,bw,notes}], clean } where `clean`
+// is the leftover note text with the recovered history removed.
+function parseMywodHistory(notes){
+  const out = { attempts: [], clean: '' };
+  if(!notes) return out;
+  let text = String(notes).replace(/\r\n?/g,'\n').trim();
+  if(!text || text==='NA') return out;
+
+  // Date tokens: M/D/YY or M/D/YYYY.
+  const dateRe = /\b(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/g;
+  const hits = [];
+  let m;
+  while((m = dateRe.exec(text))){
+    hits.push({ start:m.index, end:m.index+m[0].length, mo:+m[1], da:+m[2], yr:+m[3] });
+  }
+  if(!hits.length){ out.clean = text; return out; }
+
+  const toIso = (mo,da,yr)=>{
+    let y = yr; if(y<100) y += (y<70?2000:1900);   // 2-digit year → 20xx/19xx
+    if(mo<1||mo>12||da<1||da>31) return null;
+    return `${y}-${String(mo).padStart(2,'0')}-${String(da).padStart(2,'0')}`;
+  };
+  // Pull a score out of a window: time (m:ss / h:mm:ss), rounds (N+M), or reps/number.
+  // A bare number is only treated as reps when it is NOT a weight (e.g. "20#",
+  // "155 lb") and NOT part of a date — those are stripped/avoided by the caller.
+  const grabResult = (w)=>{
+    const time = w.match(/\b\d{1,3}:\d{2}(?::\d{2})?\b/);   if(time) return time[0];
+    const rounds = w.match(/\b\d{1,3}\s*\+\s*\d{1,3}\b/);   if(rounds) return rounds[0].replace(/\s+/g,'');
+    // reps: a number not immediately followed by a weight marker (# / lb / kg / ").
+    const reps = w.match(/\b(\d{1,4}(?:\.\d+)?)\b(?!\s*(?:#|lbs?|kgs?|"|in\b|min\b))/i);
+    if(reps) return reps[1];
+    return '';
+  };
+
+  const readWin = (raw)=>{
+    const rxd = /\brx\b/i.test(raw);
+    const bwm = raw.match(/BW\s*([\d.]+)\s*#?/i);
+    const bw = bwm ? Number(bwm[1]) : null;
+    // Strip BW + RX (and stray weight like "@175#") before reading the score.
+    const scoreText = raw
+      .replace(/BW\s*[\d.]+\s*#?/ig,' ')
+      .replace(/@\s*[\d.]+\s*#/ig,' ')
+      .replace(/\brx\b/ig,' ');
+    return { rxd, bw, result: grabResult(scoreText) };
+  };
+
+  // Each date owns the NON-overlapping block AFTER it (up to the next date) —
+  // this is the multi-attempt layout (Grace: date → BW/score). If that block has
+  // no score, fall back to the text immediately BEFORE the date (CFG-Open style:
+  // "10:59 2/12/16" or "12:26 RX 4/26/16").
+  for(let i=0;i<hits.length;i++){
+    const h = hits[i];
+    const iso = toIso(h.mo, h.da, h.yr);
+    if(!iso) continue;
+    const afterRaw = text.slice(h.end, (i+1<hits.length) ? hits[i+1].start : text.length);
+    const beforeRaw = text.slice((i>0) ? hits[i-1].end : 0, h.start);
+    let info = readWin(afterRaw);
+    if(!info.result && !info.bw && !info.rxd){
+      const b = readWin(beforeRaw);
+      // Only adopt the before-text if it actually yielded something useful.
+      if(b.result || b.bw || b.rxd) info = b;
+    }
+    out.attempts.push({ date: iso, result: info.result, rxd: info.rxd, bw: info.bw,
+      notes: info.bw ? `BW ${info.bw}#` : '' });
+  }
+
+  // "Clean" note = whatever the user typed before the first dated attempt, as
+  // long as it isn't itself the score for that first attempt.
+  const head = text.slice(0, hits[0].start).trim();
+  out.clean = /\d{1,3}:\d{2}|\brx\b|\bBW\b/i.test(head) ? '' : head;
+  return out;
 }
 
 // Map myWOD scoreType -> our WOD type.
@@ -1779,16 +1874,49 @@ function runMywodImport(arrayBuffer){
   const existingWods = new Set(DB.data.wods.map(w=> (w.mywodKey||'') ));
   const existingLifts = new Set(DB.data.lifts.map(l=> (l.mywodKey||'') ));
 
-  let addedW=0, addedL=0, skipped=0;
+  // Athlete unit preference (lb/kg) up front so a BW noted on a workout/attempt
+  // ("BW 167#" = bodyweight at the time) can be recorded as a bodyweight reading.
+  let athUnits = 'lb';
+  try{
+    const a0 = sdb.rows('Athlete').filter(a=>!a.deleted)[0];
+    if(a0 && a0.units===1) athUnits = 'kg';
+  }catch(e){}
+  // Dedup bodyweight readings by date+weight so re-import doesn't pile them up.
+  const bwSeen = new Set(DB.data.bw.map(b=> tsToISO(b.date)+':'+b.weight));
+  let addedBW=0;
+  // `lbs` flag = the source value is in pounds (notes use "#" = lbs universally).
+  // Convert to the athlete's unit so the reading matches the rest of the app.
+  const recordBW = (weight, ts, lbs=true)=>{
+    if(!weight || isNaN(weight)) return;
+    let w = Number(weight);
+    if(lbs && athUnits==='kg') w = Math.round(w*0.45359237*10)/10;
+    const k = tsToISO(ts)+':'+w;
+    if(bwSeen.has(k)) return;
+    bwSeen.add(k);
+    DB.data.bw.push({ id:uid(), createdAt:Date.now(), weight:w, unit:athUnits,
+      date: ts, notes:'from myWOD' });
+    addedBW++;
+  };
+
+  let addedW=0, addedL=0, addedH=0, skipped=0;
   const debug = { cols: (sdb.tables.MyWODs && sdb.tables.MyWODs.cols) || [], sample: null };
 
   // ---- Workouts (MyWODs) ----
-  const myw = sdb.rows('MyWODs');
+  const myw = sdb.rows('MyWODs', true);  // include each row's SQLite rowid
   if(myw[0]) debug.sample = { title: myw[0].title, scoreType: myw[0].scoreType, score: myw[0].score };
+  // Within-this-file dedup so two rows can never collide to the same key.
+  const seenKeys = new Set();
   for(const r of myw){
     if(r.deleted) continue;
-    const key = 'w:'+(r.primaryClientID||'')+':'+(r.primaryRecordID||'');
-    if(existingWods.has(key)){ skipped++; continue; }
+    // Build a stable, collision-proof key. Note: primaryRecordID can legitimately
+    // be 0, so we must NOT use `|| ''` (that would turn 0 into '' and make every
+    // zero-id row share one key). Fall back to the row's SQLite rowid to keep
+    // every distinct record unique even if the composite PK columns repeat.
+    const pc = (r.primaryClientID==null) ? '' : String(r.primaryClientID);
+    const pr = (r.primaryRecordID==null) ? '' : String(r.primaryRecordID);
+    const key = 'w:'+pc+':'+pr+':'+(r.__rowid==null?'':r.__rowid);
+    if(existingWods.has(key) || seenKeys.has(key)){ skipped++; continue; }
+    seenKeys.add(key);
     const dateMs = r.date ? isoToTs(String(r.date).slice(0,10)) : Date.now();
     // Coerce every text field to a string so a numeric score (e.g. 18) still shows.
     const asStr = (v)=> (v==null) ? '' : (typeof v==='string' ? v : String(v));
@@ -1802,18 +1930,67 @@ function runMywodImport(arrayBuffer){
       DB.data.wods = DB.data.wods.filter(w=>
         !(w.seeded && !((w.result||'').trim()) && w.benchmarkName===benchmarkName));
     }
+    const rawNotes = (asStr(r.notes) && r.notes!=='NA') ? asStr(r.notes) : '';
+    // myWOD packs prior attempts into the notes; pull them out so each becomes
+    // its own History row. `clean` is whatever the user actually typed.
+    const hist = parseMywodHistory(rawNotes);
+    const wodType = mywodType(asStr(r.scoreType));
+    const details = asStr(r.description);
     DB.data.wods.push({
       id: uid(), createdAt: Date.now(), mywodKey: key,
       title,
-      type: mywodType(asStr(r.scoreType)),
-      details: asStr(r.description),
+      type: wodType,
+      details,
       result: asStr(r.score),
       rxd: !!r.asPrescribed,
-      notes: (asStr(r.notes) && r.notes!=='NA') ? asStr(r.notes) : '',
+      notes: hist.clean,
       date: dateMs,
       benchmarkName
     });
     addedW++;
+
+    // "BW NNN#" in the notes is the athlete's bodyweight at that time. Record it
+    // as a bodyweight reading dated to the attempt so it feeds the BW trend.
+    // The main row's own BW is whichever embedded attempt shares its date…
+    const mainIso = String(r.date).slice(0,10);
+    const mainAttempt = hist.attempts.find(a=> a.date===mainIso && a.bw!=null);
+    if(mainAttempt){
+      recordBW(mainAttempt.bw, dateMs);
+    }else{
+      // …or, when the BW is written without a date (e.g. notes just "BW 165#"),
+      // attribute it to the main row's date.
+      const dateless = hist.attempts.some(a=> a.bw!=null);
+      const bwm = rawNotes.match(/BW\s*([\d.]+)\s*#?/i);
+      if(!dateless && bwm) recordBW(Number(bwm[1]), dateMs);
+    }
+
+    // Expand each notes-embedded prior attempt into a separate WOD entry so the
+    // full History shows up (e.g. Grace's 12/7/20, 2/13/19, 10/2/17 …).
+    hist.attempts.forEach((a, idx)=>{
+      const ts = a.date ? isoToTs(a.date) : dateMs;
+      // Record this attempt's bodyweight reading regardless of whether it also
+      // becomes a separate WOD row (the same-date one below is skipped as a WOD).
+      if(a.bw!=null) recordBW(a.bw, ts);
+      // Skip an embedded attempt that refers to the main row's own date — myWOD
+      // repeats the current entry's date at the top of the notes (often without a
+      // score, or just with bodyweight), so it would otherwise duplicate the row.
+      if(a.date && a.date===String(r.date).slice(0,10)) return;
+      const hkey = key+':h'+idx;
+      if(existingWods.has(hkey) || seenKeys.has(hkey)){ skipped++; return; }
+      seenKeys.add(hkey);
+      DB.data.wods.push({
+        id: uid(), createdAt: Date.now(), mywodKey: hkey,
+        title,
+        type: wodType,
+        details,
+        result: a.result || '',
+        rxd: !!a.rxd,
+        notes: a.notes || '',
+        date: ts,
+        benchmarkName
+      });
+      addedH++;
+    });
   }
 
   // ---- Lifts (MovementSessions joined to Movement) ----
@@ -1863,14 +2040,19 @@ function runMywodImport(arrayBuffer){
       if(ath.height) patch.heightIn = Number(ath.height);   // myWOD height is inches
       if(ath.gender!=null) patch.sex = (ath.gender===1?'female':'male');
       Settings.set(patch);
-      // Seed a starting bodyweight reading if none exist yet.
-      if(bw && DB.data.bw.length===0){
-        DB.data.bw.push({ id:uid(), createdAt:Date.now(), weight:bw, unit:units,
-          date: ath.dateOfBirth ? Date.now() : Date.now(), notes:'from myWOD' });
-      }
+      // Record the profile's current bodyweight (already in the athlete's unit,
+      // so don't re-convert). Deduped against BW readings recovered from workouts.
+      if(bw) recordBW(bw, Date.now(), false);
       profileMsg = `<br>Profile updated${bw?` (bodyweight ${bw} ${units})`:''}.`;
     }
   }catch(e){}
+
+  // Keep the profile's current bodyweight in sync with the most recent reading
+  // (readings may have been recovered from workout notes above).
+  if(addedBW){
+    const latest = [...DB.data.bw].sort((x,y)=>y.date-x.date)[0];
+    if(latest) Settings.set({ bodyweight: latest.weight, units: latest.unit });
+  }
 
   DB.save();
   // Diagnostic preview: shows the parsed score for the first workout so we can
@@ -1884,12 +2066,16 @@ function runMywodImport(arrayBuffer){
       <b>Import complete ✅</b>
       <div class="tag" style="margin-top:6px">
         ${addedW} workout${addedW===1?'':'s'} and ${addedL} lift entr${addedL===1?'y':'ies'} added.
+        ${addedH?`<br>${addedH} past attempt${addedH===1?'':'s'} recovered from notes into History.`:''}
+        ${addedBW?`<br>${addedBW} bodyweight reading${addedBW===1?'':'s'} recovered from notes (BW).`:''}
         ${skipped?`<br>${skipped} duplicate${skipped===1?'':'s'} skipped.`:''}
         ${profileMsg}
       </div>
     </div>
     <div class="card"><div class="tag">
       <b>Diagnostic</b><br>
+      Live workout rows parsed from file: <b>${myw.filter(r=>!r.deleted).length}</b>
+      (of ${myw.length} total, ${myw.filter(r=>r.deleted).length} marked deleted)<br>
       First workout read: <b>${sampleLine}</b><br>
       Score column detected: ${hasScoreCol?'yes':'<span style="color:var(--danger)">NO</span>'}
     </div></div>
