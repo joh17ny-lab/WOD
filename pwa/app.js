@@ -1642,10 +1642,35 @@ const MiniSQLite = (function(){
       for(let i=0;i<ncells && out.length<limit;i++){
         const cp = u16(pg, cps+i*2);
         let pos = cp;
-        let payloadLen; [payloadLen,pos] = readVarint(pg,pos);
+        let payloadLen; [payloadLen,pos] = readVarint(pg,pos); payloadLen = Number(payloadLen);
         let rowid; [rowid,pos] = readVarint(pg,pos);
-        // NOTE: overflow pages not handled; myWOD rows fit in a page.
-        try{ out.push(parseRecord(pg,pos)); }catch(e){}
+        // Reassemble the full record, following overflow pages when the payload
+        // doesn't fit on this leaf page (large myWOD descriptions overflow).
+        try{
+          const usable = pageSize;                 // no reserved bytes in myWOD files
+          const maxLocal = usable - 35;            // SQLite table-leaf threshold
+          let recBuf;
+          if(payloadLen <= maxLocal){
+            recBuf = pg.subarray(pos, pos + payloadLen);
+          }else{
+            const minLocal = ((usable - 12) * 32 / 255 | 0) - 23;
+            let local = minLocal + ((payloadLen - minLocal) % (usable - 4));
+            if(local > maxLocal) local = minLocal;
+            recBuf = new Uint8Array(payloadLen);
+            recBuf.set(pg.subarray(pos, pos + local), 0);
+            let got = local;
+            let nextPage = u32(pg, pos + local);   // 4-byte overflow page pointer
+            while(nextPage && got < payloadLen){
+              const op = page(nextPage);
+              const np = u32(op, 0);               // next overflow page (0 = last)
+              const chunk = Math.min(usable - 4, payloadLen - got);
+              recBuf.set(op.subarray(4, 4 + chunk), got);
+              got += chunk;
+              nextPage = np;
+            }
+          }
+          out.push(parseRecord(recBuf, 0));
+        }catch(e){}
       }
     }
 
