@@ -2098,9 +2098,19 @@ const Timer = {
 
   start(){
     if(this.running) return;
-    if(this.phase==='idle'||this.phase==='finished') this.reset(true);
     Sound.arm();                                   // arm audio on user gesture
     Wake.on();                                     // keep screen awake
+
+    // Resume from a pause: keep elapsed/round/phase, just restart the interval.
+    if(this.paused && this.phase!=='idle' && this.phase!=='finished'){
+      this.paused=false;
+      this.running=true;
+      this.iv = setInterval(()=>this.tick(), 1000);
+      Screens.timer();
+      return;
+    }
+
+    if(this.phase==='idle'||this.phase==='finished') this.reset(true);
     this.running=true;
     this.lead = Math.max(0, Settings.get().leadIn|0);  // pre-workout countdown
     if(this.lead > 0){
@@ -2116,13 +2126,14 @@ const Timer = {
   },
   beginWork(){
     const c=this.cfg;
+    this.paused=false;
     this.phase = this.mode==='Tabata'?'work':'running';
     this.round = (this.mode==='For Time'||this.mode==='AMRAP')?0:1;
     this.tick0();
     this.cueGo();                                  // audible GO for ALL modes
   },
-  pause(){ this.running=false; clearInterval(this.iv); this.iv=null; Sound.stop(); Wake.off(); Screens.timer(); },
-  reset(keep){ clearInterval(this.iv); this.iv=null; this.running=false; this.elapsed=0; this.round=0; this.splits=[]; this.lastBeep=-1; this.lead=0; this.phase='idle';
+  pause(){ this.running=false; this.paused=true; clearInterval(this.iv); this.iv=null; Sound.stop(); Wake.off(); Screens.timer(); },
+  reset(keep){ clearInterval(this.iv); this.iv=null; this.running=false; this.paused=false; this.elapsed=0; this.round=0; this.splits=[]; this.lastBeep=-1; this.lead=0; this.phase='idle';
     Sound.stop(); Wake.off();
     const c=this.cfg;
     this.display = this.mode==='AMRAP'?c.amrap : this.mode==='EMOM'?c.emomIv : this.mode==='Tabata'?c.work : (c.forTimeCap||0);
@@ -2272,10 +2283,13 @@ Screens.timer = function(){
 
   // Track body classes so CSS can adapt (landscape big-clock, hide tabs while running).
   document.body.classList.add('timer-active');
-  document.body.classList.toggle('timer-running', t.running);
+  // "Active" = running OR paused — in both states we show the live clock and
+  // must NOT re-render the config wheels (which would reset the display).
+  const active = t.running || t.paused;
+  document.body.classList.toggle('timer-running', active);
 
   const landscape = document.body.classList.contains('landscape');
-  const disabled = t.running?'style="opacity:.5;pointer-events:none"':'';
+  const disabled = active?'style="opacity:.5;pointer-events:none"':'';
   const clockCls = t.phase==='work'?'work':t.phase==='rest'?'rest':t.phase==='finished'?'done':t.phase==='lead'?'rest':'';
 
   const setupBlock = `
@@ -2290,7 +2304,7 @@ Screens.timer = function(){
     <div class="timer-controls">
       <button class="btn" id="tm_reset">Reset</button>
       ${t.mode==='For Time'&&t.running?'<button class="btn" id="tm_round_btn">Round</button>':''}
-      <button class="btn ${t.running?'':'primary'}" id="tm_go">${t.running?'Pause':'Start'}</button>
+      <button class="btn ${t.running?'':'primary'}" id="tm_go">${t.running?'Pause':(t.paused?'Resume':'Start')}</button>
     </div>`;
 
   if(landscape){
@@ -2298,12 +2312,17 @@ Screens.timer = function(){
     // clock + controls, centered, easy to read from across the gym.
     const summary = `<div class="tm-summary">${esc(t.modeSummary())}</div>`;
     $('screen').innerHTML = `<div class="tm-land tm-land-clock">${summary}${clockBlock}</div>`;
+  } else if(active){
+    // Running or paused: show only the live clock (no config wheels, which would
+    // overwrite the displayed time via tick0()).
+    $('screen').innerHTML = clockBlock;
   } else {
     $('screen').innerHTML = setupBlock + clockBlock;
   }
 
-  // Setup handlers only apply when the setup block is present (portrait, idle).
-  if(!t.running && !landscape){
+  // Setup handlers only apply when the setup block is present (portrait, idle —
+  // not while running or paused, when only the clock block is shown).
+  if(!active && !landscape){
     $('tm_modes').querySelectorAll('button').forEach(b=> onTapSafe(b, ()=>{ t.mode=b.dataset.m; t.reset(true); }));
 
     // Scroll-wheel pickers commit live as you spin them (no full re-render,
@@ -2423,19 +2442,11 @@ const Sound = {
     if(this.ctx.state==='suspended') this.ctx.resume();
     try{ if(navigator.audioSession){ navigator.audioSession.type='playback'; } }catch(e){}
 
-    // Media-channel route (plays on silent): WebAudio -> MediaStream -> <audio>.
-    if(!this.dest){
-      try{
-        if(this.ctx.createMediaStreamDestination){
-          this.dest = this.ctx.createMediaStreamDestination();
-          this.keepEl = document.createElement('audio');
-          this.keepEl.setAttribute('playsinline','');
-          this.keepEl.loop = true;
-          this.keepEl.srcObject = this.dest.stream;
-          this.keepEl.play().catch(()=>{});
-        }
-      }catch(e){ this.dest = null; }
-    } else if(this.keepEl){ this.keepEl.play().catch(()=>{}); }
+    // NOTE: we intentionally do NOT route tones through a MediaStreamDestination
+    // + looping <audio>. That route plays the live WebAudio stream continuously,
+    // which produces an audible background hum on some devices. Tones go straight
+    // to ctx.destination (see _out); the silent clip below keeps the session warm
+    // so cues still fire when the app is backgrounded / screen is off.
 
     // Looping silent clip keeps the media session warm.
     if(!this.silentEl){
@@ -2449,14 +2460,13 @@ const Sound = {
     this.started = true;
   },
 
-  // Stop ALL audio: cancel queued tones and pause the keepalive elements.
+  // Stop ALL audio: cancel queued tones and pause the keepalive clip.
   stop(){
     this.pending.forEach(id=>clearTimeout(id)); this.pending = [];
-    try{ if(this.keepEl){ this.keepEl.pause(); } }catch(e){}
     try{ if(this.silentEl){ this.silentEl.pause(); this.silentEl.currentTime = 0; } }catch(e){}
   },
 
-  _out(){ return this.dest || (this.ctx ? this.ctx.destination : null); },
+  _out(){ return this.ctx ? this.ctx.destination : null; },
 
   tone(freq,dur,vol,type){
     if(!this.enabled() || !this.ctx) return;
