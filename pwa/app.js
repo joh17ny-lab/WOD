@@ -282,24 +282,41 @@ Screens.workouts = function(){
   const listEl = $('wkList');
 
   // Build the merged, alphabetized model.
-  // - Each logged workout is its own row (newest first when titles tie).
-  // - Benchmarks that you have NOT logged appear as loggable templates.
+  // - Logged workouts are GROUPED by benchmark name (or title): one row per
+  //   workout, even if you've logged it many times (combines duplicates).
+  // - The row shows your best/most-recent scored attempt; tapping opens the
+  //   detail with full history.
+  // - Benchmarks you've never logged appear as loggable templates.
   function buildItems(){
     const logged = DB.wodsSorted();                        // already newest-first
-    const loggedBenchNames = new Set(
-      logged.filter(w=>w.benchmarkName).map(w=>w.benchmarkName.toLowerCase())
-    );
-    const loggedTitles = new Set(logged.map(w=>(w.title||'').toLowerCase()));
+    const groupKey = (w)=> (w.benchmarkName || w.title || '').toLowerCase();
 
-    const items = logged.map(w=>({
-      kind:'log', id:w.id, title:w.title, type:w.type, result:w.result,
-      rxd:w.rxd, date:w.date, search:(w.title+w.details+w.notes).toLowerCase()
-    }));
+    // Group all logged entries by their key.
+    const groups = new Map();                              // key -> [entries]
+    logged.forEach(w=>{
+      const k = groupKey(w);
+      if(!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(w);
+    });
+
+    const items = [];
+    groups.forEach((entries, k)=>{
+      // Pick a representative: prefer a scored attempt, else the newest entry.
+      const scored = entries.filter(e=> (e.result||'').trim());
+      const rep = scored[0] || entries[0];                 // entries already newest-first
+      const count = entries.length;
+      items.push({
+        kind:'log', id:rep.id, title:rep.title, type:rep.type,
+        result:rep.result, rxd:rep.rxd, date:rep.date, count,
+        search:(entries.map(e=>e.title+e.details+e.notes).join(' ')).toLowerCase()
+      });
+    });
 
     // Add benchmark templates that aren't already represented in the log.
+    const haveKeys = new Set([...groups.keys()]);
     BENCHMARKS.forEach(b=>{
       const n = b.name.toLowerCase();
-      if(loggedBenchNames.has(n) || loggedTitles.has(n)) return;
+      if(haveKeys.has(n)) return;
       items.push({ kind:'bench', name:b.name, title:b.name, type:b.type,
         cat:b.cat, search:(b.name+' '+b.desc).toLowerCase() });
     });
@@ -315,11 +332,12 @@ Screens.workouts = function(){
 
   function rowHtml(it){
     if(it.kind==='log'){
+      const countBadge = it.count>1 ? ` · ${it.count}×` : '';
       return `<div class="item" data-kind="log" data-id="${it.id}">
         <div class="lead">${typeIcon(it.type)}</div>
         <div class="grow">
           <div class="title">${esc(it.title)}</div>
-          <div class="sub">${esc(it.type)}${it.result?' · '+esc(it.result):''}</div>
+          <div class="sub">${esc(it.type)}${it.result?' · '+esc(it.result):''}${countBadge}</div>
         </div>
         <div class="trail">
           ${it.rxd?'<span class="pill">RX</span><br>':''}
@@ -348,6 +366,10 @@ Screens.workouts = function(){
     }
     listEl.innerHTML = items.map(rowHtml).join('');
     bindLongPress(listEl, '.item[data-kind="log"]', (el)=>{
+      // For grouped workouts (multiple attempts), long-press opens the detail so
+      // you can manage individual attempts. Single entries delete directly.
+      const it = items.find(x=> x.kind==='log' && x.id===el.dataset.id);
+      if(it && it.count>1){ wodDetail(el.dataset.id); return; }
       if(confirm('Delete this workout?')){ DB.deleteWod(el.dataset.id); render(); }
     }, (el)=> wodDetail(el.dataset.id));
     bindLongPress(listEl, '.item[data-kind="bench"]', null, (el)=> benchDetail(el.dataset.name));
