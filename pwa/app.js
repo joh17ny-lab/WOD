@@ -289,7 +289,7 @@ Screens.workouts = function(){
   // - Benchmarks you've never logged appear as loggable templates.
   function buildItems(){
     const logged = DB.wodsSorted();                        // already newest-first
-    const groupKey = (w)=> (w.benchmarkName || w.title || '').toLowerCase();
+    const groupKey = (w)=> (w.benchmarkName || w.title || '').toLowerCase().replace(/\s+/g,' ').trim();
 
     // Group all logged entries by their key.
     const groups = new Map();                              // key -> [entries]
@@ -428,7 +428,13 @@ function parseTimeToSec(s){
 }
 function benchDetail(name){
   const b = BENCHMARKS.find(x=>x.name===name);
-  const attempts = DB.data.wods.filter(w=>w.benchmarkName===name).sort((a,c)=>c.date-a.date);
+  const norm = (s)=> String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
+  // Match by benchmarkName when present, else fall back to the title so older
+  // imports that predate benchmark-linking still show up here.
+  const attempts = DB.data.wods.filter(w=>
+    norm(w.benchmarkName)===norm(name) ||
+    (!w.benchmarkName && norm(w.title)===norm(name))
+  ).sort((a,c)=>c.date-a.date);
   let best=null;
   const scored = attempts.filter(a=>a.result);
   if(scored.length){
@@ -459,7 +465,7 @@ function benchDetail(name){
 function wodDetail(id){
   const w = DB.data.wods.find(x=>x.id===id);
   if(!w) return;
-  const groupKey = (x)=> (x.benchmarkName || x.title || '').toLowerCase();
+  const groupKey = (x)=> (x.benchmarkName || x.title || '').toLowerCase().replace(/\s+/g,' ').trim();
   const key = groupKey(w);
   const attempts = DB.data.wods.filter(x=> groupKey(x)===key).sort((a,c)=>c.date-a.date);
 
@@ -487,7 +493,7 @@ function wodDetail(id){
         <div class="tag">${fmtDateFull(best.date)} ${best.rxd?'· RX':''}</div></div>`:''}
       <button class="btn primary block" id="w_again">＋ Log Again</button>
       <button class="btn block" id="w_edit" style="margin-top:8px">Edit This Entry</button>
-      ${scored.length?`<div class="sectiontitle">History (${attempts.length})</div>
+      ${attempts.length>1 || scored.length?`<div class="sectiontitle">History (${attempts.length})</div>
       <div class="list" id="w_hist">${list}</div>`:''}
     `, ()=>{
       onTapSafe($('w_again'), ()=>{ Sheet.close(); editWod(null, {
@@ -1716,6 +1722,18 @@ const MiniSQLite = (function(){
   return { parse };
 })();
 
+// Match an imported workout title against the built-in benchmark catalog so
+// imported attempts (e.g. several "Grace" or "Cindy" entries) link to the same
+// benchmark and group together everywhere. Returns the canonical benchmark
+// name, or null if the title isn't a known benchmark.
+function matchBenchmarkName(title){
+  if(typeof BENCHMARKS === 'undefined' || !title) return null;
+  const norm = (s)=> String(s).toLowerCase().replace(/\s+/g,' ').trim();
+  const t = norm(title);
+  const b = BENCHMARKS.find(x=> norm(x.name) === t);
+  return b ? b.name : null;
+}
+
 // Map myWOD scoreType -> our WOD type.
 function mywodType(scoreType){
   switch((scoreType||'').toLowerCase()){
@@ -1774,16 +1792,26 @@ function runMywodImport(arrayBuffer){
     const dateMs = r.date ? isoToTs(String(r.date).slice(0,10)) : Date.now();
     // Coerce every text field to a string so a numeric score (e.g. 18) still shows.
     const asStr = (v)=> (v==null) ? '' : (typeof v==='string' ? v : String(v));
+    const title = asStr(r.title) || 'Workout';
+    // Link known benchmarks (Grace, Cindy, …) so every imported attempt groups
+    // under the same benchmark in the Benchmarks tab and the Log.
+    const benchmarkName = matchBenchmarkName(title);
+    // If this benchmark only exists as an empty seeded placeholder, drop the
+    // placeholder so the imported real attempts become the visible history.
+    if(benchmarkName){
+      DB.data.wods = DB.data.wods.filter(w=>
+        !(w.seeded && !((w.result||'').trim()) && w.benchmarkName===benchmarkName));
+    }
     DB.data.wods.push({
       id: uid(), createdAt: Date.now(), mywodKey: key,
-      title: asStr(r.title) || 'Workout',
+      title,
       type: mywodType(asStr(r.scoreType)),
       details: asStr(r.description),
       result: asStr(r.score),
       rxd: !!r.asPrescribed,
       notes: (asStr(r.notes) && r.notes!=='NA') ? asStr(r.notes) : '',
       date: dateMs,
-      benchmarkName: null
+      benchmarkName
     });
     addedW++;
   }
