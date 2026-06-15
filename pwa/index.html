@@ -227,10 +227,11 @@
     .tm-land-clock #tm_round{font-size:18px}
     .tm-land-clock .timer-controls{margin-top:10px;width:min(560px,90vw)}
     .tm-land-clock .timer-controls .btn{padding:14px}
-    /* Hide tab bar while a landscape timer is running to maximize the clock. */
-    body.timer-running.landscape nav.tabbar{display:none}
-    body.timer-running.landscape main{padding-bottom:14px}
-    body.timer-running.landscape .tm-land-clock{height:calc(100dvh - 24px)}
+    /* Hide tab bar whenever the timer is in landscape (running or not) to
+       maximize the clock area. */
+    body.timer-active.landscape nav.tabbar{display:none}
+    body.timer-active.landscape main{padding-bottom:14px}
+    body.timer-active.landscape .tm-land-clock{height:calc(100dvh - 24px)}
   }
 </style>
 </head>
