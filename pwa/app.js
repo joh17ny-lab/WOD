@@ -2106,7 +2106,8 @@ const Timer = {
     if(this.lead > 0){
       this.phase='lead';
       this.display=this.lead;
-      this.cueCountdown();
+      // Only sound the lead-in during the final 3-2-1 seconds.
+      if(this.lead<=3) this.cueCountdown(); else { this._vib(20); this._flash('#f0a23a',120); }
     } else {
       this.beginWork();
     }
@@ -2137,7 +2138,9 @@ const Timer = {
   cueRound(){ Sound.beep(); this._vib([0,90,60,90]); this._flash('#3ec46d',260); },
   cueRest(){ Sound.beep(); this._vib([0,60,40,60]); this._flash('#f0a23a',260); },
   cueSplit(){ Sound.beep(); this._vib(25); this._flash('#e87a4c',150); },
-  cueTick(){ Sound.beep(); this._vib(20); },        // every-minute heartbeat (For Time)
+  cueTick(){ Sound.beep(); this._vib(20); },        // (legacy, unused) minute heartbeat
+  // Distinct double-beep warning for AMRAP halfway + Tabata 10-seconds-left.
+  cueWarn(){ Sound.beep(); setTimeout(()=>Sound.beep(),140); this._vib([0,50,60,50]); this._flash('#f0a23a',220); },
   cueFinish(){ Sound.finish(); this._vib([0,120,80,120,80,200]); this._flash('#e87a4c',500);
     setTimeout(()=>this._flash('#e87a4c',500),550); },
 
@@ -2148,7 +2151,11 @@ const Timer = {
     if(this.phase==='lead'){
       this.lead--;
       if(this.lead<=0){ this.beginWork(); }
-      else { this.display=this.lead; this.cueCountdown(); }
+      else {
+        this.display=this.lead;
+        // Only beep on the final 3-2-1 of the lead-in; stay silent before that.
+        if(this.lead<=3) this.cueCountdown(); else { this._vib(20); this._flash('#f0a23a',120); }
+      }
       this.updateClock(); return;
     }
 
@@ -2156,7 +2163,7 @@ const Timer = {
     const c=this.cfg;
     if(this.mode==='For Time'){
       this.display=this.elapsed;
-      if(this.elapsed%60===0) this.cueTick();        // audible minute marker
+      // (No per-minute marker — only the final 3-2-1 of a time cap beeps.)
       if(c.forTimeCap>0){
         const r=c.forTimeCap-this.elapsed;
         if(r<=3&&r>=1) this.cueCountdown();
@@ -2164,6 +2171,9 @@ const Timer = {
       }
     }
     else if(this.mode==='AMRAP'){ const r=Math.max(0,c.amrap-this.elapsed); this.display=r;
+      // Halfway cue: fire once when we cross the midpoint of the AMRAP.
+      const half=Math.floor(c.amrap/2);
+      if(half>0 && this.elapsed===half) this.cueWarn();
       if(r<=3&&r>=1&&r!==this.lastBeep){ this.lastBeep=r; this.cueCountdown(); }
       if(r===0) return this.finish(); }
     else if(this.mode==='EMOM'){ const into=(this.elapsed-1)%c.emomIv; this.display=c.emomIv-into;
@@ -2177,6 +2187,8 @@ const Timer = {
       else { this.phase='rest'; this.display=cyc-into; }
       if(into===0){ this.cueRound(); }
       else if(into===c.work){ this.cueRest(); }
+      // 10-second warning before the current work/rest interval ends.
+      else if(this.display===10){ this.cueWarn(); }
       if(this.elapsed>=this.total()) return this.finish();
     }
     this.updateClock();
