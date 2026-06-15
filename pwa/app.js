@@ -1504,7 +1504,11 @@ function backupSheet(){
     <div class="card"><h3>Import</h3><div class="tag" style="margin-bottom:10px">Load a backup file. This <b>replaces</b> current data on this device.</div>
       <input type="file" id="bk_file" accept="application/json" class="input"></div>`, ()=>{
     $('bk_export').onclick = ()=>{
-      const blob = new Blob([JSON.stringify(DB.data,null,2)], {type:'application/json'});
+      // Include the data AND the user profile/settings. Data fields are kept at
+      // the top level for backward compatibility with older backups/importers,
+      // and the full settings object is added under "settings".
+      const payload = Object.assign({}, DB.data, { settings: Settings.get() });
+      const blob = new Blob([JSON.stringify(payload,null,2)], {type:'application/json'});
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = `wodbook-backup-${todayISO()}.json`;
@@ -1519,8 +1523,17 @@ function backupSheet(){
         if(!obj.wods||!obj.lifts) throw 0;
         if(confirm('Replace all data on this device with the backup?')){
           DB.data = {wods:obj.wods, lifts:obj.lifts, bw:obj.bw||[],
-            food:obj.food||[], water:obj.water||[], customFoods:obj.customFoods||[], meals:obj.meals||[]};
-          DB.save(); Sheet.close(); render(); toast('Data restored');
+            food:obj.food||[], water:obj.water||[], customFoods:obj.customFoods||[], meals:obj.meals||[],
+            seededBenchmarks:true};
+          DB.save();
+          // Restore the user profile / settings (name, weight, height, goals,
+          // units, etc.) if present. Older backups won't have this — skip then.
+          if(obj.settings && typeof obj.settings === 'object'){
+            Settings._cache = null;                 // drop cache before overwrite
+            localStorage.setItem(Settings.KEY, JSON.stringify(obj.settings));
+            Settings._cache = null;                 // force reload on next get()
+          }
+          Sheet.close(); render(); toast('Data restored');
         }
       }catch(err){ toast('Invalid backup file'); } };
       r.readAsText(file);
