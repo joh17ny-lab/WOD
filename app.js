@@ -17,8 +17,35 @@ const DB = {
     if(!this.data.water) this.data.water = [];     // water readings {date, ml}
     if(!this.data.customFoods) this.data.customFoods = []; // user-created foods
     if(!this.data.meals) this.data.meals = [];     // saved meals (groups of foods)
+    this.seedBenchmarks();                         // pre-load benchmark WODs once
   },
   save(){ localStorage.setItem(this.KEY, JSON.stringify(this.data)); },
+
+  /// One-time seed: add every benchmark WOD as a real (un-scored) entry so they
+  /// appear in the workout list by default. Guarded by a flag so it runs only
+  /// once and won't re-add benchmarks the user later deletes.
+  seedBenchmarks(){
+    if(this.data.seededBenchmarks) return;
+    if(typeof BENCHMARKS === 'undefined') return;  // data not loaded yet
+    // Don't duplicate a benchmark that's already in the log (e.g. restored
+    // from a backup made after seeding).
+    const have = new Set(
+      this.data.wods
+        .map(w => (w.benchmarkName || w.title || '').toLowerCase())
+    );
+    BENCHMARKS.forEach(b=>{
+      if(have.has(b.name.toLowerCase())) return;
+      this.data.wods.push({
+        id: uid(), createdAt: Date.now(),
+        title: b.name, type: b.type, details: b.desc,
+        result: '', rxd: false, notes: '',
+        date: isoToTs(todayISO()),
+        benchmarkName: b.name, seeded: true
+      });
+    });
+    this.data.seededBenchmarks = true;
+    this.save();
+  },
 
   // Nutrition: food diary
   addFood(f){ f.id=uid(); f.createdAt=Date.now(); this.data.food.push(f); this.save(); },
@@ -607,6 +634,39 @@ function editLift(presetName){
 let foodDay = todayISO();                 // currently viewed diary date
 const MEALS = ['Breakfast','Lunch','Dinner','Snacks'];
 
+/* ---- Measuring units for food (solid), drink (liquid) and count ----
+   Each unit's `base` is its size in the category's base unit:
+     solid  base = 1 g, liquid base = 1 mL, count base = 1 piece.
+   `cat` groups units; conversions are only valid within a category. */
+const FOOD_UNITS = {
+  // Solid / mass (base = gram)
+  g:    {cat:'solid',  base:1,        label:'g'},
+  kg:   {cat:'solid',  base:1000,     label:'kg'},
+  oz:   {cat:'solid',  base:28.3495,  label:'oz'},
+  lb:   {cat:'solid',  base:453.592,  label:'lb'},
+  // Liquid / volume (base = milliliter)
+  ml:   {cat:'liquid', base:1,        label:'mL'},
+  l:    {cat:'liquid', base:1000,     label:'L'},
+  floz: {cat:'liquid', base:29.5735,  label:'fl oz'},
+  cup:  {cat:'liquid', base:236.588,  label:'cup'},
+  tbsp: {cat:'liquid', base:14.7868,  label:'tbsp'},
+  tsp:  {cat:'liquid', base:4.92892,  label:'tsp'},
+  // Count (base = piece)
+  piece:   {cat:'count', base:1, label:'piece'},
+  serving: {cat:'count', base:1, label:'serving'}
+};
+const UNIT_CATS = ['solid','liquid','count'];
+const CAT_LABEL = {solid:'Solid', liquid:'Liquid', count:'Count'};
+const CAT_BASIS = {solid:'100 g', liquid:'100 mL', count:'1 piece'};
+function unitsForCat(cat){ return Object.keys(FOOD_UNITS).filter(k=>FOOD_UNITS[k].cat===cat); }
+// How many "basis units" the given quantity+unit represents.
+// solid/liquid basis = 100 base units; count basis = 1 piece.
+function basisMultiplier(qty, unitKey){
+  const u = FOOD_UNITS[unitKey] || FOOD_UNITS.g;
+  const baseAmt = (parseFloat(qty)||0) * u.base;
+  return u.cat==='count' ? baseAmt : baseAmt/100;
+}
+
 function sumNutrition(items){
   return items.reduce((a,f)=>({
     kcal:a.kcal+(+f.kcal||0), p:a.p+(+f.protein||0), c:a.c+(+f.carbs||0), f:a.f+(+f.fat||0)
@@ -880,7 +940,17 @@ function paintCustom(body, meal){
 function customFoodForm(meal){
   Sheet.open('Create Food', `
     <label class="field"><span>Name</span><input class="input" id="cf_name" placeholder="e.g. Protein shake"></label>
-    <label class="field"><span>Serving description</span><input class="input" id="cf_serv" placeholder="e.g. 1 scoop (30g)"></label>
+
+    <div class="seg sm" id="cf_cat" style="margin:8px 0">
+      ${UNIT_CATS.map((c,i)=>`<button data-c="${c}" class="${i===0?'active':''}">${CAT_LABEL[c]}</button>`).join('')}
+    </div>
+    <div class="row" style="gap:8px">
+      <label class="field" style="flex:1"><span>Amount</span><input class="input" id="cf_qty" type="number" inputmode="decimal" value="100"></label>
+      <label class="field" style="flex:1"><span>Unit</span>
+        <select class="input" id="cf_unit"></select></label>
+    </div>
+
+    <div class="tag" id="cf_basis" style="margin-bottom:8px"></div>
     <div class="row" style="gap:8px">
       <label class="field" style="flex:1"><span>Calories</span><input class="input" id="cf_kcal" type="number" inputmode="decimal"></label>
       <label class="field" style="flex:1"><span>Protein g</span><input class="input" id="cf_p" type="number" inputmode="decimal"></label>
@@ -889,13 +959,42 @@ function customFoodForm(meal){
       <label class="field" style="flex:1"><span>Carbs g</span><input class="input" id="cf_c" type="number" inputmode="decimal"></label>
       <label class="field" style="flex:1"><span>Fat g</span><input class="input" id="cf_f" type="number" inputmode="decimal"></label>
     </div>
+    <div class="tag" id="cf_total" style="margin-bottom:8px"></div>
     <button class="btn primary block" id="cf_save">Save & Add</button>
   `, ()=>{
+    let cat = 'solid';
+    const fillUnits = ()=>{
+      $('cf_unit').innerHTML = unitsForCat(cat)
+        .map(k=>`<option value="${k}">${FOOD_UNITS[k].label}</option>`).join('');
+    };
+    const refresh = ()=>{
+      $('cf_basis').textContent = `Enter nutrition per ${CAT_BASIS[cat]}.`;
+      const mult = basisMultiplier($('cf_qty').value, $('cf_unit').value);
+      const kcal=+$('cf_kcal').value||0, p=+$('cf_p').value||0, c=+$('cf_c').value||0, f=+$('cf_f').value||0;
+      $('cf_total').textContent = `This entry: ${Math.round(kcal*mult)} kcal · P${Math.round(p*mult)} C${Math.round(c*mult)} F${Math.round(f*mult)}`;
+    };
+    fillUnits(); refresh();
+    $('cf_cat').querySelectorAll('button').forEach(b=> onTapSafe(b, ()=>{
+      cat=b.dataset.c;
+      $('cf_cat').querySelectorAll('button').forEach(x=>x.classList.toggle('active', x.dataset.c===cat));
+      fillUnits(); refresh();
+    }));
+    ['cf_qty','cf_unit','cf_kcal','cf_p','cf_c','cf_f'].forEach(id=>{ $(id).oninput=refresh; $(id).onchange=refresh; });
     $('cf_save').onclick = ()=>{
       const name=$('cf_name').value.trim(); if(!name){ toast('Name required'); return; }
-      const food={ name, serving:$('cf_serv').value.trim()||'1 serving',
-        kcal:+$('cf_kcal').value||0, protein:+$('cf_p').value||0, carbs:+$('cf_c').value||0, fat:+$('cf_f').value||0 };
-      DB.addCustomFood({...food});
+      const qty = parseFloat($('cf_qty').value)||0;
+      const unitKey = $('cf_unit').value;
+      const mult = basisMultiplier(qty, unitKey);
+      const qtyLabel = (qty%1===0?qty:qty.toFixed(1))+' '+FOOD_UNITS[unitKey].label;
+      // Per-basis values (saved on the custom food so it can be re-portioned).
+      const perKcal=+$('cf_kcal').value||0, perP=+$('cf_p').value||0, perC=+$('cf_c').value||0, perF=+$('cf_f').value||0;
+      // Custom food stores the per-basis profile + its unit category.
+      DB.addCustomFood({ name, cat, unit:unitKey, basis:CAT_BASIS[cat],
+        serving:qtyLabel, kcal:perKcal, protein:perP, carbs:perC, fat:perF, perBasis:true });
+      // The diary entry stores the scaled (consumed) totals.
+      const food={ name, serving:qtyLabel,
+        kcal:perKcal*mult, protein:perP*mult, carbs:perC*mult, fat:perF*mult,
+        qty, unit:unitKey, cat };
       DB.addFood({...food, meal, date:isoToTs(foodDay)});
       Sheet.close(); render(); toast('Added');
     };
@@ -1121,6 +1220,7 @@ Screens.more = function(){
       <div class="item" id="m_prog"><div class="lead">📈</div><div class="grow"><div class="title">Progress & Charts</div><div class="sub">Volume + lift maxes</div></div><div class="trail tag">›</div></div>
       <div class="item" id="m_mov"><div class="lead">📚</div><div class="grow"><div class="title">Movement Library</div><div class="sub">Reference & abbreviations</div></div><div class="trail tag">›</div></div>
       <div class="item" id="m_import"><div class="lead">📥</div><div class="grow"><div class="title">Import from myWOD</div><div class="sub">Load a .mywod backup file</div></div><div class="trail tag">›</div></div>
+      <div class="item" id="m_activity"><div class="lead">⌚</div><div class="grow"><div class="title">Import Activity File</div><div class="sub">Load a .tcx / .gpx from a watch or Garmin</div></div><div class="trail tag">›</div></div>
       <div class="item" id="m_backup"><div class="lead">💾</div><div class="grow"><div class="title">Backup & Restore</div><div class="sub">Export / import your data</div></div><div class="trail tag">›</div></div>
     </div>
     <div class="sectiontitle">About</div>
@@ -1129,8 +1229,77 @@ Screens.more = function(){
   onTapSafe($('m_prog'), progressSheet);
   onTapSafe($('m_mov'), movementsSheet);
   onTapSafe($('m_import'), importMywodSheet);
+  onTapSafe($('m_activity'), importActivitySheet);
   onTapSafe($('m_backup'), backupSheet);
 };
+
+/* --------- Activity file import (.tcx / .gpx from a watch / Garmin) -------
+   Browsers can't read Apple Health or Garmin Connect directly, so the PWA
+   imports the standard files watches export. We parse the XML summary
+   (sport, start, total time, distance, calories) into a workout entry. */
+function parseActivityXML(text, fileName){
+  const doc = new DOMParser().parseFromString(text, 'application/xml');
+  if(doc.querySelector('parsererror')) throw new Error('Couldn’t read that file.');
+  const get = (sel)=> doc.querySelector(sel);
+  const num = (el)=> el ? (parseFloat(el.textContent)||0) : 0;
+  const lower = (fileName||'').toLowerCase();
+  const isTcx = lower.endsWith('.tcx') || doc.querySelector('TrainingCenterDatabase');
+
+  if(isTcx){
+    const act = get('Activity');
+    const sport = (act && act.getAttribute('Sport')) || 'Activity';
+    const id = get('Activity Id') || get('Id');
+    // Sum lap times/calories; take max distance to avoid double counting.
+    let secs=0, kcal=0, dist=0;
+    doc.querySelectorAll('TotalTimeSeconds').forEach(e=> secs += parseFloat(e.textContent)||0);
+    doc.querySelectorAll('Calories').forEach(e=> kcal += parseFloat(e.textContent)||0);
+    doc.querySelectorAll('DistanceMeters').forEach(e=> dist = Math.max(dist, parseFloat(e.textContent)||0));
+    const start = id ? Date.parse(id.textContent) : NaN;
+    return { sport, start:isNaN(start)?null:start, secs, kcal, dist };
+  }
+  // GPX: derive duration from first/last <time>; distance/cal not summed.
+  const times = [...doc.querySelectorAll('time')].map(e=> Date.parse(e.textContent)).filter(t=>!isNaN(t));
+  const typeEl = get('type');
+  const sport = typeEl ? typeEl.textContent.trim() : 'Activity';
+  if(!times.length) throw new Error('No activity data found in the file.');
+  const start = Math.min(...times), end = Math.max(...times);
+  return { sport, start, secs:(end-start)/1000, kcal:0, dist:0 };
+}
+
+function importActivitySheet(){
+  Sheet.open('Import Activity File', `
+    <div class="card"><div class="tag">Browsers can’t read Apple Health or Garmin Connect directly. Export a <b>.tcx</b> or <b>.gpx</b> from your watch / Garmin Connect and load it here. It’s added to your workout Log.</div></div>
+    <label class="field"><span>Activity file</span>
+      <input type="file" id="ac_file" accept=".tcx,.gpx,application/gpx+xml,application/vnd.garmin.tcx+xml,application/xml,text/xml" class="input"></label>
+    <div id="ac_status"></div>
+  `, ()=>{
+    $('ac_file').onchange = (e)=>{
+      const file = e.target.files[0]; if(!file) return;
+      const r = new FileReader();
+      r.onload = ()=>{
+        try{
+          const a = parseActivityXML(String(r.result), file.name);
+          const mmss = (s)=>{ s=Math.round(s); const m=Math.floor(s/60), x=s%60; return m+':'+String(x).padStart(2,'0'); };
+          const parts=[]; if(a.secs>0) parts.push(mmss(a.secs));
+          if(a.kcal>0) parts.push(Math.round(a.kcal)+' kcal');
+          if(a.dist>0) parts.push(Math.round(a.dist)+' m');
+          const result = parts.join(' · ');
+          const date = a.start || Date.now();
+          $('ac_status').innerHTML = `<div class="card"><div class="sub" style="margin-bottom:8px"><b>${esc(a.sport)}</b><br>${esc(result||'—')}<br>${fmtDateFull(date)}</div>
+            <button class="btn primary block" id="ac_add">Add to Log</button></div>`;
+          $('ac_add').onclick = ()=>{
+            DB.addWod({ title:a.sport, type:'Other', details:'Imported from '+file.name,
+              result, date, rxd:false, notes:'', kcalBurned:Math.round(a.kcal)||0, source:'file' });
+            Sheet.close(); go('log'); toast('Activity imported');
+          };
+        }catch(err){
+          $('ac_status').innerHTML = `<div class="card" style="border-color:var(--danger)"><b>Couldn’t import</b><div class="tag">${esc(err.message||String(err))}</div></div>`;
+        }
+      };
+      r.readAsText(file);
+    };
+  });
+}
 
 function settingsSheet(){
   const s = Settings.get();
