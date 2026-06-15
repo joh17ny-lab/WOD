@@ -442,11 +442,11 @@ function benchDetail(name){
       <div class="big" style="font-size:22px">${esc(best.result)}</div>
       <div class="tag">${fmtDateFull(best.date)} ${best.rxd?'· RX':''}</div></div>`:''}
     <button class="btn primary block" id="b_log">＋ Log Attempt</button>
-    <div class="sectiontitle">History (${attempts.length})</div>
-    <div class="list" id="b_hist">${attempts.length?attempts.map(a=>`
+    ${attempts.length?`<div class="sectiontitle">History (${attempts.length})</div>
+    <div class="list" id="b_hist">${attempts.map(a=>`
       <div class="item"><div class="grow"><div class="title">${esc(a.result||'—')}</div>
         <div class="sub">${fmtDateFull(a.date)}</div></div>
-        ${a.rxd?'<span class="pill">RX</span>':''}</div>`).join(''):'<div class="empty"><p>No attempts logged yet.</p></div>'}</div>
+        ${a.rxd?'<span class="pill">RX</span>':''}</div>`).join('')}</div>`:''}
   `, ()=>{
     $('b_log').onclick = ()=>{ Sheet.close(); editWod(null, {
       title:b.name, type:b.type, details:b.desc, result:'', rxd:false, notes:'', date:isoToTs(todayISO()), benchmarkName:b.name
@@ -487,8 +487,8 @@ function wodDetail(id){
         <div class="tag">${fmtDateFull(best.date)} ${best.rxd?'· RX':''}</div></div>`:''}
       <button class="btn primary block" id="w_again">＋ Log Again</button>
       <button class="btn block" id="w_edit" style="margin-top:8px">Edit This Entry</button>
-      <div class="sectiontitle">History (${attempts.length})</div>
-      <div class="list" id="w_hist">${list}</div>
+      ${scored.length?`<div class="sectiontitle">History (${attempts.length})</div>
+      <div class="list" id="w_hist">${list}</div>`:''}
     `, ()=>{
       onTapSafe($('w_again'), ()=>{ Sheet.close(); editWod(null, {
         title:w.title, type:w.type, details:w.details, result:'', rxd:false, notes:'',
