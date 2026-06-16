@@ -72,8 +72,9 @@ const DB = {
   deleteLift(id){ this.data.lifts = this.data.lifts.filter(x=>x.id!==id); this.save(); },
   // Bodyweight
   addBW(b){ b.id = uid(); b.createdAt = Date.now(); this.data.bw.push(b);
-    // Keep Settings' current bodyweight in sync with the latest reading.
-    const latest = [...this.data.bw].sort((x,y)=>y.date-x.date)[0];
+    // Keep Settings' current bodyweight in sync with the latest reading
+    // (date, then createdAt — so a same-day reading you just logged wins).
+    const latest = [...this.data.bw].sort((x,y)=> (y.date-x.date) || ((y.createdAt||0)-(x.createdAt||0)))[0];
     if(latest) Settings.set({ bodyweight: latest.weight, units: latest.unit });
     this.save(); },
   deleteBW(id){ this.data.bw = this.data.bw.filter(x=>x.id!==id); this.save(); },
@@ -197,13 +198,18 @@ function todayISO(){ const d=new Date(); d.setHours(12,0,0,0); return d.toISOStr
 function isoToTs(iso){ const d=new Date(iso+'T12:00:00'); return d.getTime(); }
 function tsToISO(ts){ const d=new Date(ts); d.setHours(12,0,0,0); return d.toISOString().slice(0,10); }
 function e1rm(weight, reps){ return reps<=1 ? weight : Math.round(weight*(1+reps/30)); }
-// Current bodyweight from the BODYWEIGHT LOG (most recent reading), formatted
-// for prefilling an entry's notes, e.g. "BW 175 lb". Returns '' when there are
-// no bodyweight readings logged yet.
-function bwNote(){
+// The most recent bodyweight reading. Sorts by date, then by createdAt so a
+// reading you just logged today wins a same-day tie against an imported one
+// (e.g. a myWOD profile weight stamped with the import time).
+function latestBW(){
   const arr = DB.data.bw;
-  if(!arr || !arr.length) return '';
-  const latest = [...arr].sort((a,b)=> b.date - a.date)[0];
+  if(!arr || !arr.length) return null;
+  return [...arr].sort((a,b)=> (b.date - a.date) || ((b.createdAt||0) - (a.createdAt||0)))[0];
+}
+// Current bodyweight from the BODYWEIGHT LOG, formatted for prefilling an
+// entry's notes, e.g. "BW 175 lb". Returns '' when there are no readings yet.
+function bwNote(){
+  const latest = latestBW();
   if(!latest || latest.weight==null || isNaN(latest.weight)) return '';
   return `BW ${latest.weight} ${latest.unit||Settings.get().units||'lb'}`;
 }
@@ -549,7 +555,8 @@ Screens.lifts = function(){
 
 /* Bodyweight history + chart, with quick add. */
 function bodyweightDetail(){
-  const entries = [...DB.data.bw].sort((a,b)=>a.date-b.date);
+  // Oldest→newest for the chart; tie-break same-day readings by createdAt.
+  const entries = [...DB.data.bw].sort((a,b)=> (a.date-b.date) || ((a.createdAt||0)-(b.createdAt||0)));
   const chart = entries.length>1 ? lineChartSVG(entries.map(e=>({x:e.date, y:e.weight}))) : '';
   Sheet.open('Bodyweight', `
     <button class="btn primary block" id="bw_add">＋ Log Bodyweight</button>
@@ -572,7 +579,7 @@ function bodyweightDetail(){
 function editBodyweight(){
   // Default unit + prefill come from the latest logged reading (fall back to
   // the Settings unit when there are no readings yet).
-  const latest = [...DB.data.bw].sort((a,b)=> b.date - a.date)[0];
+  const latest = latestBW();
   const defUnit = latest ? (latest.unit||'lb') : (Settings.get().units==='kg'?'kg':'lb');
   const prefill = latest && latest.weight!=null ? latest.weight : '';
   Sheet.open('Log Bodyweight', `
@@ -902,13 +909,12 @@ Screens.food = function(){
   }
 
   // Bodyweight summary (latest reading) — lives in the Food/diary tab.
-  const bwArr = [...DB.data.bw].sort((a,b)=>b.date-a.date);
-  const latestBW = bwArr[0];
+  const lbw = latestBW();
   const bwRow = `<div class="list" style="margin-bottom:14px"><div class="item" id="bwRow">
       <div class="lead">⚖️</div>
       <div class="grow"><div class="title">Bodyweight</div>
-        <div class="sub">${latestBW?('last: '+fmtDate(latestBW.date)):'tap to add a reading'}</div></div>
-      <div class="trail">${latestBW?`<div class="big">${latestBW.weight}${esc(latestBW.unit)}</div>`:'<div class="tag">＋</div>'}</div>
+        <div class="sub">${lbw?('last: '+fmtDate(lbw.date)):'tap to add a reading'}</div></div>
+      <div class="trail">${lbw?`<div class="big">${lbw.weight}${esc(lbw.unit)}</div>`:'<div class="tag">＋</div>'}</div>
     </div></div>`;
 
   $('screen').innerHTML = `
@@ -2099,17 +2105,18 @@ function runMywodImport(arrayBuffer){
       if(ath.height) patch.heightIn = Number(ath.height);   // myWOD height is inches
       if(ath.gender!=null) patch.sex = (ath.gender===1?'female':'male');
       Settings.set(patch);
-      // Record the profile's current bodyweight (already in the athlete's unit,
-      // so don't re-convert). Deduped against BW readings recovered from workouts.
-      if(bw) recordBW(bw, Date.now(), false);
+      // Record the profile's current bodyweight ONLY if no dated readings were
+      // recovered from workout notes. The profile weight has no real date, so
+      // stamping it "today" would otherwise sit above genuine dated readings.
+      if(bw && addedBW===0) recordBW(bw, Date.now(), false);
       profileMsg = `<br>Profile updated${bw?` (bodyweight ${bw} ${units})`:''}.`;
     }
   }catch(e){}
 
   // Keep the profile's current bodyweight in sync with the most recent reading
-  // (readings may have been recovered from workout notes above).
+  // (date, then createdAt — so a same-day reading wins the tie).
   if(addedBW){
-    const latest = [...DB.data.bw].sort((x,y)=>y.date-x.date)[0];
+    const latest = [...DB.data.bw].sort((x,y)=> (y.date-x.date) || ((y.createdAt||0)-(x.createdAt||0)))[0];
     if(latest) Settings.set({ bodyweight: latest.weight, units: latest.unit });
   }
 
