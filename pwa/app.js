@@ -2174,10 +2174,13 @@ const Timer = {
     const c=this.cfg;
     if(this.mode==='For Time'){
       this.display=this.elapsed;
-      // (No per-minute marker — only the final 3-2-1 of a time cap beeps.)
+      // With a time cap we know the end, so cue the halfway point and the
+      // final 3-2-1. Without a cap the end is open, so neither is possible.
       if(c.forTimeCap>0){
         const r=c.forTimeCap-this.elapsed;
-        if(r<=3&&r>=1) this.cueCountdown();
+        const half=Math.floor(c.forTimeCap/2);
+        if(half>0 && this.elapsed===half) this.cueWarn();   // halfway
+        if(r<=3&&r>=1) this.cueCountdown();                 // 3-2-1
         if(this.elapsed>=c.forTimeCap) return this.finish();
       }
     }
@@ -2189,17 +2192,26 @@ const Timer = {
       if(r===0) return this.finish(); }
     else if(this.mode==='EMOM'){ const into=(this.elapsed-1)%c.emomIv; this.display=c.emomIv-into;
       this.round=Math.min(c.emomR, Math.floor((this.elapsed-1)/c.emomIv)+1);
+      const half=Math.floor(c.emomIv/2);
       if(into===0){ this.cueRound(); }
+      // Halfway through the interval, then the final 3-2-1 of it.
+      else if(half>0 && into===half){ this.cueWarn(); }
+      else if(this.display<=3 && this.display>=1){ this.cueCountdown(); }
       if(this.elapsed>=this.total()) return this.finish(); }
     else { // Tabata
       const cyc=c.work+c.rest, into=(this.elapsed-1)%cyc;
       this.round=Math.min(c.tabataR, Math.floor((this.elapsed-1)/cyc)+1);
-      if(into<c.work){ this.phase='work'; this.display=c.work-into; }
-      else { this.phase='rest'; this.display=cyc-into; }
+      let phaseLen;
+      if(into<c.work){ this.phase='work'; this.display=c.work-into; phaseLen=c.work; }
+      else { this.phase='rest'; this.display=cyc-into; phaseLen=c.rest; }
+      // Position within the current work/rest interval (0-based).
+      const inPhase = this.phase==='work' ? into : (into-c.work);
+      const half = Math.floor(phaseLen/2);
       if(into===0){ this.cueRound(); }
       else if(into===c.work){ this.cueRest(); }
-      // 10-second warning before the current work/rest interval ends.
-      else if(this.display===10){ this.cueWarn(); }
+      // Halfway through the current interval, then its final 3-2-1.
+      else if(half>0 && inPhase===half){ this.cueWarn(); }
+      else if(this.display<=3 && this.display>=1){ this.cueCountdown(); }
       if(this.elapsed>=this.total()) return this.finish();
     }
     this.updateClock();
