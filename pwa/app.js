@@ -591,6 +591,16 @@ function editBodyweight(){
   });
 }
 
+// Percentage breakdown (10%..95%) of a base weight, e.g. for percentage-based
+// programming. `base` is the entry's e1RM (= weight when reps=1).
+const PCTS = [95,90,85,80,75,70,65,60,55,50,45,40,35,30,25,20,15,10];
+function pctTableHtml(base, unit){
+  const round = (w)=> Math.round(w*10)/10;
+  return `<div class="pct-grid">` + PCTS.map(p=>
+    `<div class="pct-cell"><span class="pct-k">${p}%</span><span class="pct-v">${round(base*p/100)} ${esc(unit)}</span></div>`
+  ).join('') + `</div>`;
+}
+
 function liftDetail(name){
   const entries = DB.data.lifts.filter(l=>l.name===name).sort((a,b)=>a.date-b.date);
   const chart = entries.length>1 ? lineChartSVG(entries.map(e=>({x:e.date, y:e1rm(e.weight,e.reps)}))) : '';
@@ -598,21 +608,46 @@ function liftDetail(name){
     <button class="btn primary block" id="l_add">＋ Log Max for ${esc(name)}</button>
     ${chart?`<div class="card"><h3>Estimated 1RM over time</h3>${chart}</div>`:''}
     <div class="sectiontitle">Entries</div>
-    <div class="list">${[...entries].reverse().map(e=>`
+    <div class="tag" style="margin:-4px 0 8px">Tap an entry to edit it · tap “%” for the 10–95% breakdown.</div>
+    <div class="list">${[...entries].reverse().map(e=>{
+      const base = e1rm(e.weight,e.reps);
+      return `
       <div class="item" data-id="${e.id}">
-        <div class="grow"><div class="title">${e.weight} ${esc(e.unit)} × ${e.reps}</div>
-          <div class="sub">${e.reps>1?'est. 1RM '+e1rm(e.weight,e.reps)+' '+esc(e.unit)+' · ':''}${fmtDateFull(e.date)}</div>
-          ${e.notes?`<div class="sub">${esc(e.notes)}</div>`:''}</div></div>`).join('')}</div>
+        <div class="grow" data-edit="${e.id}"><div class="title">${e.weight} ${esc(e.unit)} × ${e.reps}</div>
+          <div class="sub">${e.reps>1?'est. 1RM '+base+' '+esc(e.unit)+' · ':''}${fmtDateFull(e.date)}</div>
+          ${e.notes?`<div class="sub">${esc(e.notes)}</div>`:''}</div>
+        <button class="btn ghost sm" data-pct="${e.id}" style="align-self:center">%</button>
+      </div>
+      <div class="card pct-card" id="pct_${e.id}" style="display:none">
+        <div class="tag" style="margin-bottom:6px">% of ${base} ${esc(e.unit)}${e.reps>1?' (est. 1RM)':''}</div>
+        ${pctTableHtml(base, e.unit)}
+      </div>`;
+    }).join('')}</div>
   `, ()=>{
     $('l_add').onclick = ()=>{ Sheet.close(); editLift(name); };
+    // Tap "%" to toggle that entry's percentage breakdown.
+    $('sheetBody').querySelectorAll('[data-pct]').forEach(b=> b.onclick=(ev)=>{
+      ev.stopPropagation();
+      const el = $('pct_'+b.dataset.pct);
+      if(el) el.style.display = el.style.display==='none' ? 'block' : 'none';
+    });
+    // Tap an entry's body to edit it.
+    $('sheetBody').querySelectorAll('[data-edit]').forEach(g=> onTapSafe(g, ()=>{
+      const e = DB.data.lifts.find(x=>x.id===g.dataset.edit);
+      if(e){ Sheet.close(); editLift(null, e); }
+    }));
+    // Long-press still deletes quickly.
     bindLongPress($('sheetBody'), '.item[data-id]', (el)=>{
       if(confirm('Delete this entry?')){ DB.deleteLift(el.dataset.id); Sheet.close(); render(); }
     });
   });
 }
 
-function editLift(presetName){
+// editLift(presetName)            -> log a NEW max (optionally pre-named)
+// editLift(null, existingEntry)   -> EDIT an existing entry (prefilled + Delete)
+function editLift(presetName, edit){
   const defUnit = Settings.get().units==='kg'?'kg':'lb';
+  const lockedName = edit ? edit.name : presetName;     // name fixed when editing
   // Build the lift picker: Common lifts + the full Movement Library
   // (weightlifting first, then everything else), de-duplicated.
   const commonSet = new Set(COMMON_LIFTS.map(x=>x.toLowerCase()));
@@ -623,23 +658,25 @@ function editLift(presetName){
     <optgroup label="Common Lifts">${COMMON_LIFTS.map(opt).join('')}</optgroup>
     ${libWeight.length?`<optgroup label="Library · Weightlifting">${libWeight.map(m=>opt(m.n)).join('')}</optgroup>`:''}
     ${libOther.length?`<optgroup label="Library · Other Movements">${libOther.map(m=>opt(m.n)).join('')}</optgroup>`:''}`;
-  Sheet.open('Log Max', `
-    ${presetName?`<label class="field"><span>Lift</span><input class="input" value="${esc(presetName)}" disabled></label>`:`
+  const initUnit = edit ? edit.unit : defUnit;
+  Sheet.open(edit?'Edit Entry':'Log Max', `
+    ${lockedName?`<label class="field"><span>Lift</span><input class="input" value="${esc(lockedName)}" disabled></label>`:`
     <label class="field"><span>Lift</span><select class="input" id="l_name">${liftOpts}<option value="__custom">Custom…</option></select></label>
     <label class="field" id="l_customWrap" style="display:none"><span>Custom lift name</span><input class="input" id="l_custom" placeholder="Lift name"></label>`}
     <div class="row" style="gap:10px">
-      <label class="field" style="flex:1"><span>Weight</span><input class="input" id="l_weight" type="number" inputmode="decimal" placeholder="0"></label>
+      <label class="field" style="flex:1"><span>Weight</span><input class="input" id="l_weight" type="number" inputmode="decimal" placeholder="0" value="${edit?edit.weight:''}"></label>
       <label class="field" style="width:110px"><span>Unit</span>
-        <div class="seg" id="l_unit"><button data-u="lb" class="${defUnit==='lb'?'active':''}">lb</button><button data-u="kg" class="${defUnit==='kg'?'active':''}">kg</button></div></label>
+        <div class="seg" id="l_unit"><button data-u="lb" class="${initUnit==='lb'?'active':''}">lb</button><button data-u="kg" class="${initUnit==='kg'?'active':''}">kg</button></div></label>
     </div>
-    <div class="stepper card"><span>Reps</span><div class="ctl"><button id="l_rm">−</button><span class="big" id="l_reps">1</span><button id="l_rp">＋</button></div></div>
+    <div class="stepper card"><span>Reps</span><div class="ctl"><button id="l_rm">−</button><span class="big" id="l_reps">${edit?edit.reps:1}</span><button id="l_rp">＋</button></div></div>
     <div class="tag" id="l_e1rm" style="margin:8px 0"></div>
-    <label class="field"><span>Date</span><input class="input" type="date" id="l_date" value="${todayISO()}"></label>
-    <label class="field"><span>Notes</span><input class="input" id="l_notes" placeholder="Optional"></label>
-    <button class="btn primary block" id="l_save">Save</button>
+    <label class="field"><span>Date</span><input class="input" type="date" id="l_date" value="${edit?tsToISO(edit.date):todayISO()}"></label>
+    <label class="field"><span>Notes</span><input class="input" id="l_notes" placeholder="Optional" value="${edit?esc(edit.notes||''):''}"></label>
+    <button class="btn primary block" id="l_save">${edit?'Save Changes':'Save'}</button>
+    ${edit?'<button class="btn danger block" id="l_del" style="margin-top:10px">Delete Entry</button>':''}
   `, ()=>{
-    let unit=defUnit, reps=1;
-    if(!presetName){
+    let unit=initUnit, reps=edit?edit.reps:1;
+    if(!lockedName){
       $('l_name').onchange = ()=> $('l_customWrap').style.display = $('l_name').value==='__custom'?'block':'none';
     }
     $('l_unit').querySelectorAll('button').forEach(b=> b.onclick=()=>{ unit=b.dataset.u; $('l_unit').querySelectorAll('button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); upd(); });
@@ -647,14 +684,18 @@ function editLift(presetName){
     $('l_rm').onclick=()=>{ reps=Math.max(1,reps-1); $('l_reps').textContent=reps; upd(); };
     $('l_rp').onclick=()=>{ reps=Math.min(20,reps+1); $('l_reps').textContent=reps; upd(); };
     $('l_weight').oninput = upd;
+    upd();
     $('l_save').onclick = ()=>{
-      let name = presetName;
+      let name = lockedName;
       if(!name){ name = $('l_name').value==='__custom' ? $('l_custom').value.trim() : $('l_name').value; }
       const weight = parseFloat($('l_weight').value);
       if(!name || isNaN(weight)){ toast('Lift and weight required'); return; }
-      DB.addLift({name, weight, unit, reps, date:isoToTs($('l_date').value||todayISO()), notes:$('l_notes').value.trim()});
+      const rec = {name, weight, unit, reps, date:isoToTs($('l_date').value||todayISO()), notes:$('l_notes').value.trim()};
+      if(edit){ Object.assign(edit, rec); DB.save(); }
+      else DB.addLift(rec);
       Sheet.close(); render(); toast('Saved');
     };
+    if(edit) $('l_del').onclick = ()=>{ if(confirm('Delete this entry?')){ DB.deleteLift(edit.id); Sheet.close(); render(); toast('Deleted'); } };
   });
 }
 

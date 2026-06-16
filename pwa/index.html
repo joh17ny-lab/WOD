@@ -223,6 +223,14 @@
     .cal-cell{font-size:13px}
   }
 
+  /* Lift percentage breakdown grid (10%..95%). */
+  .pct-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .pct-cell{display:flex;justify-content:space-between;align-items:baseline;gap:6px;
+    background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+  .pct-k{font-size:12px;color:var(--muted);font-weight:700}
+  .pct-v{font-size:13px;font-weight:800}
+  .pct-card{margin-top:-6px}
+
   /* Timer: landscape shows ONLY the big clock + controls (settings hidden). */
   body.timer-active.landscape main{padding-bottom:12px}
   /* Applies to ANY landscape height (phone or tablet) so everything fits on one
