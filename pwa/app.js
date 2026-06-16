@@ -2389,10 +2389,9 @@ Screens.timer = function(){
     </div>`;
 
   if(landscape){
-    // Landscape: hide all setup/config — show only a mode summary + the big
-    // clock + controls, centered, easy to read from across the gym.
-    const summary = `<div class="tm-summary">${esc(t.modeSummary())}</div>`;
-    $('screen').innerHTML = `<div class="tm-land tm-land-clock">${summary}${clockBlock}</div>`;
+    // Landscape: hide all setup/config AND the mode-summary line — show only the
+    // big clock + controls, centered and as large as possible.
+    $('screen').innerHTML = `<div class="tm-land tm-land-clock">${clockBlock}</div>`;
   } else if(active){
     // Running or paused: show only the live clock (no config wheels, which would
     // overwrite the displayed time via tick0()).
