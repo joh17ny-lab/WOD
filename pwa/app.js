@@ -560,7 +560,9 @@ function bodyweightDetail(){
         <div class="grow"><div class="title">${e.weight} ${esc(e.unit)}</div>
           <div class="sub">${fmtDateFull(e.date)}${e.notes?' · '+esc(e.notes):''}</div></div></div>`).join(''):'<div class="empty"><p>No readings yet.</p></div>'}</div>
   `, ()=>{
-    onTapSafe($('bw_add'), ()=>{ Sheet.close(); editBodyweight(); });
+    // Open the editor directly (it reuses the same sheet element) — don't close
+    // first, which could leave the sheet hidden mid-transition.
+    onTapSafe($('bw_add'), ()=> editBodyweight());
     bindLongPress($('bw_list'), '.item[data-id]', (el)=>{
       if(confirm('Delete this reading?')){ DB.deleteBW(el.dataset.id); Sheet.close(); render(); }
     });
