@@ -2288,9 +2288,7 @@ const Timer = {
     this.cueFinish(); Wake.off();
     setTimeout(()=>Sound.stop(), 2200);              // stop after the alarm plays out
     Screens.timer();
-    setTimeout(()=>{ if(confirm('Workout done — log this result?')){
-      go('log'); editWod(null, {title:this.mode, type:this.resultType(), result:this.resultStr(), details:'', rxd:false, notes:'', date:isoToTs(todayISO())});
-    }}, 400);
+    // (No auto "log this result?" prompt — the screen just shows DONE + result.)
   },
   resultStr(){ const c=this.cfg;
     return this.mode==='For Time'?mmss(this.elapsed)
