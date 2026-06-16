@@ -197,6 +197,16 @@ function todayISO(){ const d=new Date(); d.setHours(12,0,0,0); return d.toISOStr
 function isoToTs(iso){ const d=new Date(iso+'T12:00:00'); return d.getTime(); }
 function tsToISO(ts){ const d=new Date(ts); d.setHours(12,0,0,0); return d.toISOString().slice(0,10); }
 function e1rm(weight, reps){ return reps<=1 ? weight : Math.round(weight*(1+reps/30)); }
+// Current bodyweight from the BODYWEIGHT LOG (most recent reading), formatted
+// for prefilling an entry's notes, e.g. "BW 175 lb". Returns '' when there are
+// no bodyweight readings logged yet.
+function bwNote(){
+  const arr = DB.data.bw;
+  if(!arr || !arr.length) return '';
+  const latest = [...arr].sort((a,b)=> b.date - a.date)[0];
+  if(!latest || latest.weight==null || isNaN(latest.weight)) return '';
+  return `BW ${latest.weight} ${latest.unit||Settings.get().units||'lb'}`;
+}
 function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),1800); }
 function buzz(ms){ if(navigator.vibrate) try{navigator.vibrate(ms);}catch(e){} }
 
@@ -381,6 +391,8 @@ Screens.workouts = function(){
 function editWod(id, prefill){
   const w = id ? DB.data.wods.find(x=>x.id===id) : null;
   const base = w || prefill || {title:'',type:'For Time',details:'',result:'',rxd:false,notes:'',date:isoToTs(todayISO())};
+  // For a NEW entry, prefill notes with the current bodyweight from Settings.
+  const notesInit = (!id && !(base.notes||'').trim()) ? bwNote() : (base.notes||'');
   const segTypes = WOD_TYPES.map(t=>`<button data-t="${t.k}" class="${t.k===base.type?'active':''}">${t.k}</button>`).join('');
   Sheet.open(id?'Edit WOD':'New WOD', `
     <label class="field"><span>Title</span><input class="input" id="f_title" value="${esc(base.title)}" placeholder="e.g. Fran"></label>
@@ -391,7 +403,7 @@ function editWod(id, prefill){
     <div class="toggle card" style="margin-bottom:12px"><span>Performed as prescribed (RX)</span><button class="switch ${base.rxd?'on':''}" id="f_rx"></button></div>
     <label class="field"><span>Date</span><input class="input" type="date" id="f_date" value="${tsToISO(base.date)}"></label>
     <label class="field"><span>Calories burned (optional)</span><input class="input" id="f_kcal" type="number" inputmode="numeric" value="${base.kcalBurned!=null?base.kcalBurned:''}" placeholder="e.g. 350"></label>
-    <label class="field"><span>Notes</span><textarea class="input" id="f_notes" placeholder="How did it feel?">${esc(base.notes)}</textarea></label>
+    <label class="field"><span>Notes</span><textarea class="input" id="f_notes" placeholder="How did it feel?">${esc(notesInit)}</textarea></label>
     <button class="btn primary block" id="f_save">${id?'Save Changes':'Save Workout'}</button>
     ${id?'<button class="btn danger block" id="f_del" style="margin-top:10px">Delete</button>':''}
   `, ()=>{
@@ -510,20 +522,10 @@ function wodDetail(id){
   open();
 }
 
-/* ---- LIFTS (with Bodyweight tracker at top) ---- */
+/* ---- LIFTS ---- */
 Screens.lifts = function(){
   $('topActions').innerHTML = `<button class="iconbtn" id="addLift">＋</button>`;
   if($('addLift')) onTapSafe($('addLift'), ()=>editLift(null));
-
-  // Bodyweight summary (latest reading).
-  const bw = [...DB.data.bw].sort((a,b)=>b.date-a.date);
-  const latestBW = bw[0];
-  const bwRow = `<div class="item" id="bwRow">
-      <div class="lead">⚖️</div>
-      <div class="grow"><div class="title">Bodyweight</div>
-        <div class="sub">${latestBW?('last: '+fmtDate(latestBW.date)):'tap to add a reading'}</div></div>
-      <div class="trail">${latestBW?`<div class="big">${latestBW.weight}${esc(latestBW.unit)}</div>`:'<div class="tag">＋</div>'}</div>
-    </div>`;
 
   const names = [...new Set(DB.data.lifts.map(l=>l.name))].sort();
   let liftsHtml = '';
@@ -541,8 +543,7 @@ Screens.lifts = function(){
     }).join('') + `</div>`;
   }
 
-  $('screen').innerHTML = `<div class="sectiontitle">Body</div><div class="list">${bwRow}</div>${liftsHtml}`;
-  onTapSafe($('bwRow'), bodyweightDetail);
+  $('screen').innerHTML = liftsHtml;
   if($('liftList')) bindLongPress($('liftList'), '.item[data-name]', null, (el)=>liftDetail(el.dataset.name));
 };
 
@@ -567,8 +568,11 @@ function bodyweightDetail(){
 }
 
 function editBodyweight(){
-  const defUnit = Settings.get().units==='kg'?'kg':'lb';
-  const prefill = Settings.get().bodyweight!=null ? Settings.get().bodyweight : '';
+  // Default unit + prefill come from the latest logged reading (fall back to
+  // the Settings unit when there are no readings yet).
+  const latest = [...DB.data.bw].sort((a,b)=> b.date - a.date)[0];
+  const defUnit = latest ? (latest.unit||'lb') : (Settings.get().units==='kg'?'kg':'lb');
+  const prefill = latest && latest.weight!=null ? latest.weight : '';
   Sheet.open('Log Bodyweight', `
     <div class="row" style="gap:10px">
       <label class="field" style="flex:1"><span>Weight</span>
@@ -671,7 +675,7 @@ function editLift(presetName, edit){
     <div class="stepper card"><span>Reps</span><div class="ctl"><button id="l_rm">−</button><span class="big" id="l_reps">${edit?edit.reps:1}</span><button id="l_rp">＋</button></div></div>
     <div class="tag" id="l_e1rm" style="margin:8px 0"></div>
     <label class="field"><span>Date</span><input class="input" type="date" id="l_date" value="${edit?tsToISO(edit.date):todayISO()}"></label>
-    <label class="field"><span>Notes</span><input class="input" id="l_notes" placeholder="Optional" value="${edit?esc(edit.notes||''):''}"></label>
+    <label class="field"><span>Notes</span><input class="input" id="l_notes" placeholder="Optional" value="${edit?esc(edit.notes||''):esc(bwNote())}"></label>
     <button class="btn primary block" id="l_save">${edit?'Save Changes':'Save'}</button>
     ${edit?'<button class="btn danger block" id="l_del" style="margin-top:10px">Delete Entry</button>':''}
   `, ()=>{
@@ -895,18 +899,30 @@ Screens.food = function(){
       }).join('');
   }
 
+  // Bodyweight summary (latest reading) — lives in the Food/diary tab.
+  const bwArr = [...DB.data.bw].sort((a,b)=>b.date-a.date);
+  const latestBW = bwArr[0];
+  const bwRow = `<div class="list" style="margin-bottom:14px"><div class="item" id="bwRow">
+      <div class="lead">⚖️</div>
+      <div class="grow"><div class="title">Bodyweight</div>
+        <div class="sub">${latestBW?('last: '+fmtDate(latestBW.date)):'tap to add a reading'}</div></div>
+      <div class="trail">${latestBW?`<div class="big">${latestBW.weight}${esc(latestBW.unit)}</div>`:'<div class="tag">＋</div>'}</div>
+    </div></div>`;
+
   $('screen').innerHTML = `
     <div class="date-nav">
       <button class="iconbtn" id="fd_prev">‹</button>
       <div class="d" id="fd_label">${foodDay===todayISO()?'Today':fmtDateFull(isoToTs(foodDay))}</div>
       <button class="iconbtn" id="fd_next">›</button>
     </div>
+    ${bwRow}
     <div class="card">${ringHtml}</div>
     ${mealsHtml}
     <div class="card" style="margin-top:14px">${waterHtml}</div>
     <div class="card" style="margin-top:14px">${balanceHtml}</div>
     ${microHtml?`<div class="card" style="margin-top:14px">${microHtml}</div>`:''}`;
 
+  onTapSafe($('bwRow'), bodyweightDetail);
   onTapSafe($('fd_prev'), ()=>{ foodDay=shiftISO(foodDay,-1); render(); });
   onTapSafe($('fd_next'), ()=>{ foodDay=shiftISO(foodDay, 1); render(); });
   $('screen').querySelectorAll('.add[data-meal]').forEach(b=> onTapSafe(b, ()=> addFoodFlow(b.dataset.meal)));
