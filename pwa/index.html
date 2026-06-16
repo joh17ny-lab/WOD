@@ -144,6 +144,8 @@
   .clock{font-size:84px;font-weight:800;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:2px;line-height:1.05}
   .clock.work{color:var(--green)} .clock.rest{color:var(--orange)} .clock.done{color:var(--accent)}
   .phase{text-align:center;font-weight:800;letter-spacing:2px;margin-top:4px}
+  /* Wall-clock (time of day) shown above the workout clock. */
+  .tm-wallclock{text-align:center;font-size:15px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums;letter-spacing:1px}
   .timer-controls{display:flex;gap:10px;margin-top:18px}
   .timer-controls .btn{flex:1;padding:16px;font-size:16px}
   .stepper{display:flex;align-items:center;justify-content:space-between;padding:8px 0}
@@ -245,11 +247,12 @@
     /* Single centered column sized to the full viewport, never scrolling. */
     .tm-land-clock{display:flex;flex-direction:column;justify-content:center;align-items:center;
       height:100dvh;max-width:100%!important;gap:6px;padding:8px 12px;box-sizing:border-box;overflow:hidden}
-    .tm-summary{font-size:14px;font-weight:800;letter-spacing:1.2px;color:var(--accent);text-transform:uppercase;margin:0}
-    /* Clock scales to the SHORTER dimension so it never overflows vertically,
-       and is capped so the phase/round/controls always have room. */
-    .tm-land-clock .clock{font-size:min(18vw,34vh);line-height:.9;margin:0}
-    .tm-land-clock .phase{font-size:clamp(14px,2.4vh,20px);margin:0}
+    .tm-summary{font-size:13px;font-weight:800;letter-spacing:1.2px;color:var(--accent);text-transform:uppercase;margin:0}
+    .tm-land-clock .tm-wallclock{font-size:clamp(13px,2.4vh,20px);margin:0}
+    /* Big clock — scales to the SHORTER dimension so it never overflows
+       vertically, capped so the phase/round/controls still have room. */
+    .tm-land-clock .clock{font-size:min(26vw,46vh);line-height:.85;margin:0;letter-spacing:1px}
+    .tm-land-clock .phase{font-size:clamp(14px,2.6vh,22px);margin:0}
     .tm-land-clock #tm_round{font-size:clamp(13px,2.2vh,18px);margin:0}
     .tm-land-clock .timer-controls{margin-top:8px;width:min(560px,92vw)}
     .tm-land-clock .timer-controls .btn{padding:clamp(8px,1.6vh,14px)}

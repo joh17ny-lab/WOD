@@ -193,6 +193,8 @@ const $ = (id)=>document.getElementById(id);
 function esc(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function mmss(sec){ const m=Math.floor(sec/60), s=sec%60; return String(m).padStart(2,'0')+':'+String(s).padStart(2,'0'); }
 function fmtDate(ts){ return new Date(ts).toLocaleDateString(undefined,{month:'short',day:'numeric'}); }
+// Current wall-clock time of day, e.g. "3:48 PM" — shown on the timer screen.
+function wallClock(){ return new Date().toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}); }
 function fmtDateFull(ts){ return new Date(ts).toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric',year:'numeric'}); }
 function todayISO(){ const d=new Date(); d.setHours(12,0,0,0); return d.toISOString().slice(0,10); }
 function isoToTs(iso){ const d=new Date(iso+'T12:00:00'); return d.getTime(); }
@@ -2375,6 +2377,7 @@ Screens.timer = function(){
     <div class="card" ${disabled}><div class="tag" style="margin-bottom:6px">${blurbs[t.mode]}</div>${cfgHtml}</div>`;
 
   const clockBlock = `
+    <div class="tm-wallclock" id="tm_wall">${wallClock()}</div>
     <div style="margin:10px 0 6px"><div class="clock ${clockCls}" id="tm_clock">${mmss(t.display)}</div>
       <div class="phase" id="tm_phase">${t.phaseLabel()}</div></div>
     <div class="big" style="text-align:center" id="tm_round">${t.roundLabel()}</div>
@@ -2424,6 +2427,11 @@ Screens.timer = function(){
   $('tm_reset').onclick=()=>t.reset(true);
   $('tm_go').onclick=()=> t.running? t.pause() : t.start();
   if($('tm_round_btn')) $('tm_round_btn').onclick=()=>t.markRound();
+
+  // Keep the wall-clock (time of day) ticking once per second while it's shown.
+  if(!Screens._wallIv){
+    Screens._wallIv = setInterval(()=>{ const w=$('tm_wall'); if(w) w.textContent=wallClock(); }, 1000);
+  }
 };
 
 /* =================== Scroll wheel picker (PushPress-style) ===================
