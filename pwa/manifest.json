@@ -1,6 +1,6 @@
 {
-  "name": "WODBook",
-  "short_name": "WODBook",
+  "name": "GreenBeanFitness",
+  "short_name": "GreenBeanFitness",
   "description": "CrossFit / functional fitness workout tracker — log WODs, benchmarks, lifts, and use the built-in timer.",
   "start_url": "./index.html",
   "scope": "./",
