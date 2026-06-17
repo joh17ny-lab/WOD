@@ -573,7 +573,9 @@ function bodyweightDetail(){
     // first, which could leave the sheet hidden mid-transition.
     onTapSafe($('bw_add'), ()=> editBodyweight());
     bindLongPress($('bw_list'), '.item[data-id]', (el)=>{
-      if(confirm('Delete this reading?')){ DB.deleteBW(el.dataset.id); Sheet.close(); render(); }
+      // Re-open the same sheet in place (don't Sheet.close, which would kick the
+      // user out of the Bodyweight menu) so the list refreshes after a delete.
+      if(confirm('Delete this reading?')){ DB.deleteBW(el.dataset.id); bodyweightDetail(); }
     });
   });
 }
