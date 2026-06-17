@@ -273,17 +273,23 @@ function render(){
 
 /* ------------------------------- Sheet ---------------------------------- */
 const Sheet = {
+  _openedAt: 0,
   open(title, html, onOpen){
     $('sheetTitle').textContent = title;
     $('sheetBody').innerHTML = html;
     $('sheetBg').classList.add('show');
     $('sheet').classList.add('show');
+    // Stamp the (re)open time so a ghost/synthetic click fired by iOS right after
+    // a tap that opened/replaced this sheet (e.g. "Log Bodyweight") doesn't land
+    // on the backdrop and immediately close it.
+    this._openedAt = Date.now();
     if(onOpen) onOpen();
   },
   close(){ $('sheetBg').classList.remove('show'); $('sheet').classList.remove('show'); }
 };
 $('sheetClose').onclick = ()=>Sheet.close();
-$('sheetBg').onclick = ()=>Sheet.close();
+// Ignore a backdrop click that arrives within the ghost-click window of an open.
+$('sheetBg').onclick = ()=>{ if(Date.now()-Sheet._openedAt < 400) return; Sheet.close(); };
 
 /* ------------------------------ Screens --------------------------------- */
 const Screens = {};
