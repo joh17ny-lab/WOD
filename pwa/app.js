@@ -2269,7 +2269,9 @@ const Timer = {
     else if(this.mode==='EMOM'){ const into=(this.elapsed-1)%c.emomIv; this.display=c.emomIv-into;
       this.round=Math.min(c.emomR, Math.floor((this.elapsed-1)/c.emomIv)+1);
       const half=Math.floor(c.emomIv/2);
-      if(into===0){ this.cueRound(); }
+      // Skip the round cue on the very first interval — cueGo() already sounded
+      // the start right after the countdown (avoids a double beep).
+      if(into===0 && this.elapsed>1){ this.cueRound(); }
       // Halfway through the interval, then the final 3-2-1 of it.
       else if(half>0 && into===half){ this.cueWarn(); }
       else if(this.display<=3 && this.display>=1){ this.cueCountdown(); }
@@ -2283,7 +2285,9 @@ const Timer = {
       // Position within the current work/rest interval (0-based).
       const inPhase = this.phase==='work' ? into : (into-c.work);
       const half = Math.floor(phaseLen/2);
-      if(into===0){ this.cueRound(); }
+      // Skip the round cue on the very first interval — cueGo() already sounded
+      // the start right after the countdown (avoids a double beep).
+      if(into===0 && this.elapsed>1){ this.cueRound(); }
       else if(into===c.work){ this.cueRest(); }
       // Halfway through the current interval, then its final 3-2-1.
       else if(half>0 && inPhase===half){ this.cueWarn(); }
