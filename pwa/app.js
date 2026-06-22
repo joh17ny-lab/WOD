@@ -2572,7 +2572,7 @@ const Sound = {
   },
 
   beep(){ this.tone(880,0.16,0.6); },
-  go(){ this.tone(1175,0.4,0.7); },     // distinct "GO" cue at start
+  go(){ this.tone(1175,0.9,0.7); },     // distinct, longer sustained "GO" cue at start
 
   // Louder, longer multi-tone finish alarm (rising bursts, repeated).
   finish(){
