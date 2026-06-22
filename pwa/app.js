@@ -2326,7 +2326,7 @@ const Timer = {
 Screens.timer = function(){
   const t=Timer, c=t.cfg;
   const modes=['For Time','AMRAP','EMOM','Tabata'];
-  const blurbs={'For Time':'Count up. Tap “Round” to record splits.','AMRAP':'Count down from a set duration.','EMOM':'Every minute on the minute for N rounds.','Tabata':'Work / rest intervals repeated for N rounds.'};
+  const blurbs={'For Time':'Count up to your finish time.','AMRAP':'Count down from a set duration.','EMOM':'Every minute on the minute for N rounds.','Tabata':'Work / rest intervals repeated for N rounds.'};
   // Quick presets per mode — one tap to configure a common workout.
   const presets = {
     'For Time': [['No cap',0],['10:00',600],['15:00',900],['20:00',1200],['60:00',3600],['90:00',5400]],
@@ -2386,11 +2386,10 @@ Screens.timer = function(){
     <div class="tm-wallclock" id="tm_wall">${wallClock()}</div>
     <div style="margin:10px 0 6px"><div class="clock ${clockCls}" id="tm_clock">${mmss(t.display)}</div>
       <div class="phase" id="tm_phase">${t.phaseLabel()}</div></div>
-    <div class="big" style="text-align:center" id="tm_round">${t.roundLabel()}</div>
+    <div class="tm-round" id="tm_round">${t.roundLabel()}</div>
     ${splitsHtml}
     <div class="timer-controls">
       <button class="btn" id="tm_reset">Reset</button>
-      ${t.mode==='For Time'&&t.running?'<button class="btn" id="tm_round_btn">Round</button>':''}
       <button class="btn ${t.running?'':'primary'}" id="tm_go">${t.running?'Pause':(t.paused?'Resume':'Start')}</button>
     </div>`;
 
@@ -2431,7 +2430,6 @@ Screens.timer = function(){
   }
   $('tm_reset').onclick=()=>t.reset(true);
   $('tm_go').onclick=()=> t.running? t.pause() : t.start();
-  if($('tm_round_btn')) $('tm_round_btn').onclick=()=>t.markRound();
 
   // Keep the wall-clock (time of day) ticking once per second while it's shown.
   if(!Screens._wallIv){
