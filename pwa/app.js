@@ -2541,8 +2541,8 @@ function setupWheel(colId, onPick){
   function markSel(silent){
     const i = Math.max(0, Math.min(opts.length-1, Math.round(w.scrollTop/ih)));
     opts.forEach((o,k)=> o.classList.toggle('sel', k===i));
-    // Click once per value as the wheel passes it — the "spinning" sound.
-    if(i!==lastSel){ lastSel=i; if(!silent) Sound.tick(); }
+    // Buzz once per value as the wheel passes it — the "spinning" haptic.
+    if(i!==lastSel){ lastSel=i; if(!silent && Settings.get().vibrate!==false) buzz(6); }
   }
   let tmr=null;
   w.addEventListener('scroll', ()=>{
@@ -2640,8 +2640,20 @@ const Sound = {
     if(!this.ctx){ try{ this.ctx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
     if(this.ctx && this.ctx.state==='suspended') this.ctx.resume();
   },
-  // Short, soft click for the scroll-wheel "spinning" sound (one per value tick).
-  tick(){ this.ensureCtx(); this.tone(1500,0.03,0.18,'triangle'); },
+  // iOS (esp. standalone home-screen PWA) only unlocks WebAudio inside a real
+  // user GESTURE (touchstart/click) — a scroll event does NOT count. Call this
+  // from a gesture so later scroll-driven ticks can actually play. Playing a
+  // 1-sample silent buffer is the reliable iOS unlock trick.
+  unlock(){
+    if(!this.enabled()) return;
+    this.ensureCtx();
+    if(!this.ctx) return;
+    try{
+      const b=this.ctx.createBuffer(1,1,22050), s=this.ctx.createBufferSource();
+      s.buffer=b; s.connect(this.ctx.destination); s.start(0);
+    }catch(e){}
+    try{ if(navigator.audioSession){ navigator.audioSession.type='playback'; } }catch(e){}
+  },
 
   // Louder, longer multi-tone finish alarm (rising bursts, repeated).
   finish(){
@@ -2729,3 +2741,17 @@ DB.load();
 updateOrientationClass();
 renderTabbar();
 render();
+
+// Unlock WebAudio on the very first user gesture (covers iOS standalone PWA, so
+// scroll-wheel ticks and other cues can play). Runs once, then removes itself.
+(function(){
+  const unlockOnce = ()=>{
+    Sound.unlock();
+    document.removeEventListener('touchstart', unlockOnce);
+    document.removeEventListener('pointerdown', unlockOnce);
+    document.removeEventListener('click', unlockOnce);
+  };
+  document.addEventListener('touchstart', unlockOnce, {passive:true});
+  document.addEventListener('pointerdown', unlockOnce, {passive:true});
+  document.addEventListener('click', unlockOnce);
+})();
