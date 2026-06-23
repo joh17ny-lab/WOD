@@ -293,15 +293,6 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<!-- iOS Taptic Engine hack: toggling a <label> wrapping an `<input switch>`
-     fires a subtle system haptic on iPhone (Safari/standalone), where the Web
-     Vibration API is unavailable. Used by hapticTick() for the timer wheel nudge.
-     Kept visually hidden + inert; has NO audio effect. -->
-<label id="hapticSwitch" aria-hidden="true"
-       style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;pointer-events:none">
-  <input type="checkbox" switch tabindex="-1">
-</label>
-
 <script src="app.js"></script>
 <script>
   if ('serviceWorker' in navigator) {
