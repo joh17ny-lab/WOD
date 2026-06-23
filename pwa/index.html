@@ -267,9 +267,10 @@
     .tm-land-bar{position:fixed;top:6px;left:8px;right:8px;z-index:30;
       display:flex;align-items:center;justify-content:space-between;gap:8px;pointer-events:none}
     .tm-land-bar > *{pointer-events:auto}
+    .tm-land-bar-right{display:flex;align-items:center;gap:8px;margin-left:auto}
     .tm-land-modes{flex:0 1 auto}
     .tm-land-modes button{padding:6px 10px;font-size:13px}
-    .tm-land-exit{padding:6px 12px;font-size:13px;margin-left:auto}
+    .tm-land-set,.tm-land-exit{padding:6px 12px;font-size:13px}
   }
   /* The landscape bar only renders in the landscape view; hide if ever in portrait. */
   body:not(.landscape) .tm-land-bar{display:none}

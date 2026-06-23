@@ -2402,7 +2402,10 @@ Screens.timer = function(){
   const landBar = `
     <div class="tm-land-bar">
       ${active ? '' : `<div class="seg tm-land-modes" id="tm_land_modes">${modes.map(m=>`<button data-m="${m}" class="${m===t.mode?'active':''}">${m}</button>`).join('')}</div>`}
-      <button class="btn tm-land-exit" id="tm_land_exit">✕ Exit</button>
+      <div class="tm-land-bar-right">
+        ${active ? '' : `<button class="btn tm-land-set" id="tm_land_set">⚙ Settings</button>`}
+        <button class="btn tm-land-exit" id="tm_land_exit">✕ Exit</button>
+      </div>
     </div>`;
 
   if(landscape){
@@ -2454,6 +2457,37 @@ Screens.timer = function(){
       go('log');                // exit the timer screen
     });
   }
+  // Landscape-only: edit the current mode's settings in a sheet without rotating.
+  if($('tm_land_set')){
+    onTapSafe($('tm_land_set'), ()=>{
+      Sheet.open(t.mode+' settings', `
+        <div class="tag" style="margin-bottom:6px">${blurbs[t.mode]}</div>
+        ${cfgHtml}
+        <button class="btn primary block" id="tm_set_done" style="margin-top:12px">Done</button>`, ()=>{
+        // Commit wheel spins straight into the config (no live clock to refresh
+        // here — the timer re-renders when the sheet closes).
+        initTimeWheel('cfg_cap',   (v)=>{ c.forTimeCap=v; });
+        initTimeWheel('cfg_amrap', (v)=>{ c.amrap=Math.max(10,v); });
+        initTimeWheel('cfg_emomIv',(v)=>{ c.emomIv=Math.max(5,v); });
+        initNumWheel('cfg_emomR',  (v)=>{ c.emomR=Math.max(1,v); });
+        initNumWheel('cfg_work',   (v)=>{ c.work=Math.max(5,v); });
+        initNumWheel('cfg_rest',   (v)=>{ c.rest=Math.max(0,v); });
+        initNumWheel('cfg_tabR',   (v)=>{ c.tabataR=Math.max(1,v); });
+        initNumWheel('cfg_lead',   (v)=>{ Settings.set({leadIn:Math.max(0,v)}); });
+        // Preset chips: apply, then close + re-render so the clock shows new values.
+        const applyPreset = ()=>{ Sheet.close(); t.reset(true); };
+        [['fc','For Time',p=>{c.forTimeCap=p;}],
+          ['ap','AMRAP',p=>{c.amrap=p;}],
+          ['em','EMOM',p=>{c.emomIv=p.iv;c.emomR=p.r;}],
+          ['tb','Tabata',p=>{c.work=p.w;c.rest=p.r;c.tabataR=p.n;}]
+        ].forEach(([attr,mode,set])=>{
+          document.querySelectorAll('#sheetBody [data-'+attr+']').forEach(b=>
+            onTapSafe(b, ()=>{ set(presets[mode][+b.dataset[attr]][1]); applyPreset(); }));
+        });
+        onTapSafe($('tm_set_done'), ()=>{ Sheet.close(); t.reset(true); });
+      });
+    });
+  }
 
   // Keep the wall-clock (time of day) ticking once per second while it's shown.
   if(!Screens._wallIv){
@@ -2502,10 +2536,13 @@ function setupWheel(colId, onPick){
   const idxOf = (v)=> opts.findIndex(o=> +o.dataset.v === +v);
   const start = Math.max(0, idxOf(+w.dataset.sel));
   // Position to the initially-selected option.
-  requestAnimationFrame(()=>{ w.scrollTop = start*ih; markSel(); });
-  function markSel(){
-    const i = Math.round(w.scrollTop/ih);
+  let lastSel = start;
+  requestAnimationFrame(()=>{ w.scrollTop = start*ih; markSel(true); });
+  function markSel(silent){
+    const i = Math.max(0, Math.min(opts.length-1, Math.round(w.scrollTop/ih)));
     opts.forEach((o,k)=> o.classList.toggle('sel', k===i));
+    // Click once per value as the wheel passes it — the "spinning" sound.
+    if(i!==lastSel){ lastSel=i; if(!silent) Sound.tick(); }
   }
   let tmr=null;
   w.addEventListener('scroll', ()=>{
@@ -2595,6 +2632,16 @@ const Sound = {
 
   beep(){ this.tone(880,0.16,0.6); },
   go(){ this.tone(1175,1.5,0.7); },     // distinct, long sustained "GO" cue at start
+
+  // Lazily create/resume the audio context so UI ticks can play before Start
+  // (config spinning happens before the timer's arm() on Start).
+  ensureCtx(){
+    if(!this.enabled()) return;
+    if(!this.ctx){ try{ this.ctx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
+    if(this.ctx && this.ctx.state==='suspended') this.ctx.resume();
+  },
+  // Short, soft click for the scroll-wheel "spinning" sound (one per value tick).
+  tick(){ this.ensureCtx(); this.tone(1500,0.03,0.18,'triangle'); },
 
   // Louder, longer multi-tone finish alarm (rising bursts, repeated).
   finish(){
