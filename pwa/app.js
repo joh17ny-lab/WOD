@@ -109,22 +109,61 @@ const Settings = {
 };
 
 /* ---------------------- Keep screen awake (Wake Lock) ------------------- */
+// Primary path: the Screen Wake Lock API (Android/Chrome, newer Safari).
+// Fallback for iOS/iPadOS, which historically lack a reliable Wake Lock in a
+// standalone PWA: play a hidden, muted, looping INLINE VIDEO fed by a canvas
+// captureStream (the "NoSleep" trick). iOS keeps the display on while a video
+// plays; audio alone does NOT prevent sleep, which is why the silent-audio
+// keepalive doesn't help here.
 const Wake = {
-  lock:null,
+  lock:null, vid:null, canvas:null, _drawIv:null,
   async on(){
     if(Settings.get().keepAwake===false) return;
+    let gotLock=false;
     try{
       if('wakeLock' in navigator && !this.lock){
         this.lock = await navigator.wakeLock.request('screen');
         this.lock.addEventListener('release', ()=>{ this.lock=null; });
-      }
+        gotLock = true;
+      } else if(this.lock){ gotLock = true; }
     }catch(e){ this.lock=null; }
+    // If the Wake Lock API is unavailable or failed (typical on iOS/iPadOS),
+    // fall back to the looping-video keepalive.
+    if(!gotLock) this._videoOn();
   },
   async off(){
     try{ if(this.lock){ await this.lock.release(); this.lock=null; } }catch(e){ this.lock=null; }
+    this._videoOff();
+  },
+  _videoOn(){
+    try{
+      if(!this.vid){
+        const cv = this.canvas = document.createElement('canvas');
+        cv.width = cv.height = 2;
+        const ctx = cv.getContext('2d');
+        // Toggle a pixel periodically so the captured stream keeps producing
+        // frames (a static canvas can stop the stream and let the screen sleep).
+        this._drawIv = setInterval(()=>{
+          try{ ctx.fillStyle = (Date.now()>>9)&1 ? '#000' : '#010101'; ctx.fillRect(0,0,2,2); }catch(e){}
+        }, 1000);
+        const v = this.vid = document.createElement('video');
+        v.muted = true; v.setAttribute('muted','');
+        v.setAttribute('playsinline',''); v.setAttribute('webkit-playsinline','');
+        v.setAttribute('aria-hidden','true');
+        v.style.cssText = 'position:fixed;left:-1px;top:-1px;width:1px;height:1px;opacity:0;pointer-events:none';
+        try{ v.srcObject = cv.captureStream(2); }catch(e){}
+        document.body.appendChild(v);
+      }
+      if(this.vid) this.vid.play().catch(()=>{});
+    }catch(e){}
+  },
+  _videoOff(){
+    try{ if(this.vid) this.vid.pause(); }catch(e){}
+    if(this._drawIv){ clearInterval(this._drawIv); this._drawIv=null; }
   }
 };
-// Re-acquire the lock if iOS drops it when returning to the app mid-timer.
+// Re-acquire the lock / restart the keepalive if iOS drops it when returning to
+// the app mid-timer.
 document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState==='visible' && Timer.running) Wake.on();
 });
