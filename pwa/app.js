@@ -2397,10 +2397,18 @@ Screens.timer = function(){
       <button class="btn ${t.running?'':'primary'}" id="tm_go">${t.running?'Pause':(t.paused?'Resume':'Start')}</button>
     </div>`;
 
+  // Landscape top bar: lets the user pick another timer (when idle) and exit the
+  // timer screen, since the normal mode selector + tab bar are hidden landscape.
+  const landBar = `
+    <div class="tm-land-bar">
+      ${active ? '' : `<div class="seg tm-land-modes" id="tm_land_modes">${modes.map(m=>`<button data-m="${m}" class="${m===t.mode?'active':''}">${m}</button>`).join('')}</div>`}
+      <button class="btn tm-land-exit" id="tm_land_exit">✕ Exit</button>
+    </div>`;
+
   if(landscape){
     // Landscape: hide all setup/config AND the mode-summary line — show only the
-    // big clock + controls, centered and as large as possible.
-    $('screen').innerHTML = `<div class="tm-land tm-land-clock">${clockBlock}</div>`;
+    // big clock + controls, plus a slim bar to switch timers / exit.
+    $('screen').innerHTML = `${landBar}<div class="tm-land tm-land-clock">${clockBlock}</div>`;
   } else if(active){
     // Running or paused: show only the live clock (no config wheels, which would
     // overwrite the displayed time via tick0()).
@@ -2434,6 +2442,18 @@ Screens.timer = function(){
   }
   $('tm_reset').onclick=()=>t.reset(true);
   $('tm_go').onclick=()=> t.running? t.pause() : t.start();
+
+  // Landscape-only bar: switch timer mode (idle) and exit the timer screen.
+  if($('tm_land_modes')){
+    $('tm_land_modes').querySelectorAll('button').forEach(b=> onTapSafe(b, ()=>{ t.mode=b.dataset.m; t.reset(true); }));
+  }
+  if($('tm_land_exit')){
+    onTapSafe($('tm_land_exit'), ()=>{
+      if(t.running && !confirm('Leave the running timer?')) return;
+      t.reset(true);            // stop any active/paused timer and clear state
+      go('log');                // exit the timer screen
+    });
+  }
 
   // Keep the wall-clock (time of day) ticking once per second while it's shown.
   if(!Screens._wallIv){

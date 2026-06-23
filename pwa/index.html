@@ -261,7 +261,18 @@
     .tm-land-clock .timer-controls .btn{padding:clamp(8px,1.6vh,14px)}
     /* Hide the splits list in landscape — it would push controls off-screen. */
     .tm-land-clock .splits{display:none}
+
+    /* Slim overlay bar (top): pick another timer / exit. Floats over the clock so
+       it doesn't shrink the centered layout. */
+    .tm-land-bar{position:fixed;top:6px;left:8px;right:8px;z-index:30;
+      display:flex;align-items:center;justify-content:space-between;gap:8px;pointer-events:none}
+    .tm-land-bar > *{pointer-events:auto}
+    .tm-land-modes{flex:0 1 auto}
+    .tm-land-modes button{padding:6px 10px;font-size:13px}
+    .tm-land-exit{padding:6px 12px;font-size:13px;margin-left:auto}
   }
+  /* The landscape bar only renders in the landscape view; hide if ever in portrait. */
+  body:not(.landscape) .tm-land-bar{display:none}
 </style>
 </head>
 <body>
