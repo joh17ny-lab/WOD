@@ -218,6 +218,19 @@ function bwNote(){
 function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),1800); }
 function buzz(ms){ if(navigator.vibrate) try{navigator.vibrate(ms);}catch(e){} }
 
+// A single light haptic "nudge". Android uses the Web Vibration API; iOS Safari/
+// standalone has no vibrate API but fires the Taptic Engine when a <label> that
+// wraps an `<input switch>` is toggled — so we click the hidden #hapticSwitch.
+// Purely haptic: no audio side effects.
+let _hapticEl = null;
+function hapticTick(){
+  if(navigator.vibrate){ try{ navigator.vibrate(8); return; }catch(e){} }
+  try{
+    if(!_hapticEl) _hapticEl = document.getElementById('hapticSwitch');
+    if(_hapticEl) _hapticEl.click();
+  }catch(e){}
+}
+
 /* Simple responsive line chart returning an inline SVG string.
    pts = [{x:timestamp, y:number}] sorted by x ascending. */
 function lineChartSVG(pts){
@@ -2536,10 +2549,13 @@ function setupWheel(colId, onPick){
   const idxOf = (v)=> opts.findIndex(o=> +o.dataset.v === +v);
   const start = Math.max(0, idxOf(+w.dataset.sel));
   // Position to the initially-selected option.
-  requestAnimationFrame(()=>{ w.scrollTop = start*ih; markSel(); });
-  function markSel(){
-    const i = Math.round(w.scrollTop/ih);
+  let lastSel = start;
+  requestAnimationFrame(()=>{ w.scrollTop = start*ih; markSel(true); });
+  function markSel(silent){
+    const i = Math.max(0, Math.min(opts.length-1, Math.round(w.scrollTop/ih)));
     opts.forEach((o,k)=> o.classList.toggle('sel', k===i));
+    // Nudge once per value as the wheel passes it (respects the Vibrate setting).
+    if(i!==lastSel){ lastSel=i; if(!silent && Settings.get().vibrate!==false) hapticTick(); }
   }
   let tmr=null;
   w.addEventListener('scroll', ()=>{
