@@ -2573,8 +2573,22 @@ function initNumWheel(id, commit){
 const Sound = {
   ctx:null, dest:null, keepEl:null, silentEl:null, started:false, pending:[],
 
-  // 1s of silence as a WAV data URI (used to hold an active media session).
-  _silentWav:'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=',
+  // Short silent WAV data URI used to hold an active media session warm so cues
+  // still output (incl. iOS standalone PWA / screen off). Built at load time as a
+  // valid 8kHz mono 16-bit PCM file with ~0.4s of real (silent) samples — a
+  // zero-length clip won't start a media session on iOS.
+  _silentWav:(function(){
+    const sr=8000, secs=0.4, n=Math.floor(sr*secs), dataLen=n*2, total=44+dataLen;
+    const b=new Uint8Array(total), dv=new DataView(b.buffer);
+    const wr=(o,s)=>{ for(let i=0;i<s.length;i++) b[o+i]=s.charCodeAt(i); };
+    wr(0,'RIFF'); dv.setUint32(4,36+dataLen,true); wr(8,'WAVE');
+    wr(12,'fmt '); dv.setUint32(16,16,true); dv.setUint16(20,1,true);
+    dv.setUint16(22,1,true); dv.setUint32(24,sr,true); dv.setUint32(28,sr*2,true);
+    dv.setUint16(32,2,true); dv.setUint16(34,16,true);
+    wr(36,'data'); dv.setUint32(40,dataLen,true);
+    let bin=''; for(let i=0;i<total;i++) bin+=String.fromCharCode(b[i]);
+    return 'data:audio/wav;base64,'+btoa(bin);
+  })(),
 
   enabled(){ return Settings.get().sound !== false; },
 
@@ -2596,14 +2610,7 @@ const Sound = {
     // so cues still fire when the app is backgrounded / screen is off.
 
     // Looping silent clip keeps the media session warm.
-    if(!this.silentEl){
-      try{
-        this.silentEl = document.createElement('audio');
-        this.silentEl.src = this._silentWav; this.silentEl.loop = true;
-        this.silentEl.setAttribute('playsinline',''); this.silentEl.volume = 0.01;
-      }catch(e){}
-    }
-    if(this.silentEl) this.silentEl.play().catch(()=>{});
+    this._startKeepalive();
     this.started = true;
   },
 
@@ -2638,9 +2645,11 @@ const Sound = {
     if(this.ctx && this.ctx.state==='suspended') this.ctx.resume();
   },
   // iOS (esp. standalone home-screen PWA) only unlocks WebAudio inside a real
-  // user GESTURE (touchstart/click) — a scroll event does NOT count. Call this
-  // from a gesture so later scroll-driven ticks can actually play. Playing a
-  // 1-sample silent buffer is the reliable iOS unlock trick.
+  // user GESTURE (touchstart/click) — a scroll event does NOT count. In a
+  // standalone PWA, WebAudio routed to ctx.destination stays muted until a media
+  // session is established, so we ALSO start the silent keepalive <audio> here
+  // (the same one arm() uses) from the gesture. Playing a 1-sample silent buffer
+  // is the additional reliable WebAudio unlock trick.
   unlock(){
     if(!this.enabled()) return;
     this.ensureCtx();
@@ -2650,6 +2659,21 @@ const Sound = {
       s.buffer=b; s.connect(this.ctx.destination); s.start(0);
     }catch(e){}
     try{ if(navigator.audioSession){ navigator.audioSession.type='playback'; } }catch(e){}
+    // Establish the media session so cues actually output in standalone mode.
+    this._startKeepalive();
+  },
+  // Create + play the looping silent clip that holds an active media session.
+  // Shared by arm() and unlock(); safe to call repeatedly.
+  _startKeepalive(){
+    if(!this.silentEl){
+      try{
+        this.silentEl = document.createElement('audio');
+        this.silentEl.src = this._silentWav; this.silentEl.loop = true;
+        this.silentEl.setAttribute('playsinline',''); this.silentEl.volume = 0.01;
+        document.body.appendChild(this.silentEl);
+      }catch(e){}
+    }
+    if(this.silentEl) this.silentEl.play().catch(()=>{});
   },
 
   // Louder, longer multi-tone finish alarm (rising bursts, repeated).
