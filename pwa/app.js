@@ -2536,13 +2536,10 @@ function setupWheel(colId, onPick){
   const idxOf = (v)=> opts.findIndex(o=> +o.dataset.v === +v);
   const start = Math.max(0, idxOf(+w.dataset.sel));
   // Position to the initially-selected option.
-  let lastSel = start;
-  requestAnimationFrame(()=>{ w.scrollTop = start*ih; markSel(true); });
-  function markSel(silent){
-    const i = Math.max(0, Math.min(opts.length-1, Math.round(w.scrollTop/ih)));
+  requestAnimationFrame(()=>{ w.scrollTop = start*ih; markSel(); });
+  function markSel(){
+    const i = Math.round(w.scrollTop/ih);
     opts.forEach((o,k)=> o.classList.toggle('sel', k===i));
-    // Buzz once per value as the wheel passes it — the "spinning" haptic.
-    if(i!==lastSel){ lastSel=i; if(!silent && Settings.get().vibrate!==false) buzz(6); }
   }
   let tmr=null;
   w.addEventListener('scroll', ()=>{
@@ -2633,8 +2630,8 @@ const Sound = {
   beep(){ this.tone(880,0.16,0.6); },
   go(){ this.tone(1175,1.5,0.7); },     // distinct, long sustained "GO" cue at start
 
-  // Lazily create/resume the audio context so UI ticks can play before Start
-  // (config spinning happens before the timer's arm() on Start).
+  // Lazily create/resume the audio context (used by unlock() on first gesture so
+  // standalone-PWA audio is ready before the timer's arm() on Start).
   ensureCtx(){
     if(!this.enabled()) return;
     if(!this.ctx){ try{ this.ctx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
@@ -2742,8 +2739,9 @@ updateOrientationClass();
 renderTabbar();
 render();
 
-// Unlock WebAudio on the very first user gesture (covers iOS standalone PWA, so
-// scroll-wheel ticks and other cues can play). Runs once, then removes itself.
+// Unlock WebAudio on the very first user gesture. This is what lets the timer
+// cues play in the iOS HOME-SCREEN (standalone) PWA, where the audio context
+// starts suspended and only a real gesture can resume it. Runs once, self-removes.
 (function(){
   const unlockOnce = ()=>{
     Sound.unlock();
