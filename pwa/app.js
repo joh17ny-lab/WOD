@@ -2684,14 +2684,14 @@ const Sound = {
     }catch(e){ this.dest = null; }
   },
 
-  // Tones go to BOTH the device speaker (ctx.destination) and the media-stream
-  // <audio> element (the standalone-PWA path). Where the stream isn't available
-  // we still get ctx.destination.
+  // Pick exactly ONE output so a tone is never heard twice. Prefer the
+  // media-stream <audio> element when available (the route that actually plays in
+  // a standalone iOS PWA); otherwise fall back to the normal speaker output.
+  // Routing to both at once caused a doubled / phasing "two sounds" artifact.
   _outputs(){
-    const outs = [];
-    if(this.ctx) outs.push(this.ctx.destination);
-    if(this.dest) outs.push(this.dest);
-    return outs;
+    if(this.dest) return [this.dest];
+    if(this.ctx) return [this.ctx.destination];
+    return [];
   },
 
   tone(freq,dur,vol,type){
