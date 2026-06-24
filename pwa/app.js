@@ -2610,7 +2610,7 @@ function initNumWheel(id, commit){
    treats the page as MEDIA playback (music/video channel) which ignores the
    ringer switch. We also set the audio session to "playback" where supported. */
 const Sound = {
-  ctx:null, dest:null, keepEl:null, silentEl:null, started:false, pending:[],
+  ctx:null, dest:null, streamEl:null, keepEl:null, silentEl:null, started:false, pending:[],
 
   // Short silent WAV data URI used to hold an active media session warm so cues
   // still output (incl. iOS standalone PWA / screen off). Built at load time as a
@@ -2633,22 +2633,28 @@ const Sound = {
 
   // Arm the audio session on a user gesture (Start). Keepalive runs ONLY
   // while the timer is active, and stop() tears it down so nothing lingers.
+  // Put the iOS audio session into the "playback" category as EARLY as possible.
+  // In a standalone (home-screen) PWA the session otherwise defaults to an
+  // ambient category that is silenced by the hardware mute switch and frequently
+  // outputs nothing for WebAudio — this is the main reason "no sound in
+  // standalone mode" happens. Safe no-op where unsupported.
+  _setPlaybackSession(){
+    try{ if(navigator.audioSession){ navigator.audioSession.type='playback'; } }catch(e){}
+  },
+
   arm(){
     if(!this.enabled()) return;
+    this._setPlaybackSession();
     if(!this.ctx){
       try{ this.ctx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){}
     }
     if(!this.ctx) return;
     if(this.ctx.state==='suspended') this.ctx.resume();
-    try{ if(navigator.audioSession){ navigator.audioSession.type='playback'; } }catch(e){}
+    this._setPlaybackSession();
+    this._ensureStreamOut();
 
-    // NOTE: we intentionally do NOT route tones through a MediaStreamDestination
-    // + looping <audio>. That route plays the live WebAudio stream continuously,
-    // which produces an audible background hum on some devices. Tones go straight
-    // to ctx.destination (see _out); the silent clip below keeps the session warm
-    // so cues still fire when the app is backgrounded / screen is off.
-
-    // Looping silent clip keeps the media session warm.
+    // Looping silent clip keeps the media session warm so cues still fire when
+    // the app is backgrounded / the screen is off.
     this._startKeepalive();
     this.started = true;
   },
@@ -2659,13 +2665,42 @@ const Sound = {
     try{ if(this.silentEl){ this.silentEl.pause(); this.silentEl.currentTime = 0; } }catch(e){}
   },
 
-  _out(){ return this.ctx ? this.ctx.destination : null; },
+  // Build a MediaStreamDestination fed into a played <audio> element. Routing
+  // tones through a real <audio> element (not just ctx.destination) is what makes
+  // WebAudio reliably audible in an iOS standalone PWA. There is NO continuous
+  // hum here because nothing is generated between tones — the stream is silent
+  // unless tone() is actively playing an oscillator.
+  _ensureStreamOut(){
+    if(!this.ctx || this.dest) return;
+    try{
+      if(typeof this.ctx.createMediaStreamDestination !== 'function') return;
+      this.dest = this.ctx.createMediaStreamDestination();
+      this.streamEl = document.createElement('audio');
+      this.streamEl.setAttribute('playsinline','');
+      this.streamEl.autoplay = true;
+      this.streamEl.srcObject = this.dest.stream;
+      document.body.appendChild(this.streamEl);
+      this.streamEl.play().catch(()=>{});
+    }catch(e){ this.dest = null; }
+  },
+
+  // Tones go to BOTH the device speaker (ctx.destination) and the media-stream
+  // <audio> element (the standalone-PWA path). Where the stream isn't available
+  // we still get ctx.destination.
+  _outputs(){
+    const outs = [];
+    if(this.ctx) outs.push(this.ctx.destination);
+    if(this.dest) outs.push(this.dest);
+    return outs;
+  },
 
   tone(freq,dur,vol,type){
     if(!this.enabled() || !this.ctx) return;
+    if(this.ctx.state==='suspended') this.ctx.resume();
     const o=this.ctx.createOscillator(), g=this.ctx.createGain();
     o.frequency.value=freq; o.type=type||'square';
-    o.connect(g); g.connect(this._out());
+    o.connect(g);
+    this._outputs().forEach(out=>{ try{ g.connect(out); }catch(e){} });
     const t=this.ctx.currentTime, v=vol==null?0.6:vol;
     g.gain.setValueAtTime(0.0001,t);
     g.gain.exponentialRampToValueAtTime(v,t+0.01);
@@ -2680,15 +2715,17 @@ const Sound = {
   // standalone-PWA audio is ready before the timer's arm() on Start).
   ensureCtx(){
     if(!this.enabled()) return;
+    this._setPlaybackSession();
     if(!this.ctx){ try{ this.ctx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
     if(this.ctx && this.ctx.state==='suspended') this.ctx.resume();
   },
   // iOS (esp. standalone home-screen PWA) only unlocks WebAudio inside a real
   // user GESTURE (touchstart/click) — a scroll event does NOT count. In a
   // standalone PWA, WebAudio routed to ctx.destination stays muted until a media
-  // session is established, so we ALSO start the silent keepalive <audio> here
-  // (the same one arm() uses) from the gesture. Playing a 1-sample silent buffer
-  // is the additional reliable WebAudio unlock trick.
+  // session is established AND the session is in the "playback" category, so we
+  // set that, build the media-stream output, AND start the silent keepalive
+  // <audio> here (all from the gesture). Playing a 1-sample silent buffer is the
+  // additional reliable WebAudio unlock trick.
   unlock(){
     if(!this.enabled()) return;
     this.ensureCtx();
@@ -2697,18 +2734,21 @@ const Sound = {
       const b=this.ctx.createBuffer(1,1,22050), s=this.ctx.createBufferSource();
       s.buffer=b; s.connect(this.ctx.destination); s.start(0);
     }catch(e){}
-    try{ if(navigator.audioSession){ navigator.audioSession.type='playback'; } }catch(e){}
+    this._setPlaybackSession();
+    this._ensureStreamOut();
     // Establish the media session so cues actually output in standalone mode.
     this._startKeepalive();
   },
   // Create + play the looping silent clip that holds an active media session.
-  // Shared by arm() and unlock(); safe to call repeatedly.
+  // Shared by arm() and unlock(); safe to call repeatedly. The clip is fully
+  // MUTED (not 0.01 volume) so it never competes with cues, while still keeping
+  // the media session warm in standalone mode.
   _startKeepalive(){
     if(!this.silentEl){
       try{
         this.silentEl = document.createElement('audio');
         this.silentEl.src = this._silentWav; this.silentEl.loop = true;
-        this.silentEl.setAttribute('playsinline',''); this.silentEl.volume = 0.01;
+        this.silentEl.setAttribute('playsinline',''); this.silentEl.muted = true;
         document.body.appendChild(this.silentEl);
       }catch(e){}
     }
