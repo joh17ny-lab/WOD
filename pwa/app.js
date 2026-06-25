@@ -2659,17 +2659,20 @@ const Sound = {
     this.started = true;
   },
 
-  // Stop ALL audio: cancel queued tones and pause the keepalive clip.
+  // Stop ALL audio: cancel queued tones, pause the keepalive clip and the
+  // media-stream output element.
   stop(){
     this.pending.forEach(id=>clearTimeout(id)); this.pending = [];
+    clearTimeout(this._streamPauseT);
     try{ if(this.silentEl){ this.silentEl.pause(); this.silentEl.currentTime = 0; } }catch(e){}
+    try{ if(this.streamEl){ this.streamEl.pause(); } }catch(e){}
   },
 
-  // Build a MediaStreamDestination fed into a played <audio> element. Routing
-  // tones through a real <audio> element (not just ctx.destination) is what makes
-  // WebAudio reliably audible in an iOS standalone PWA. There is NO continuous
-  // hum here because nothing is generated between tones — the stream is silent
-  // unless tone() is actively playing an oscillator.
+  // Build a MediaStreamDestination fed into an <audio> element. Routing tones
+  // through a real <audio> element (not just ctx.destination) is what makes
+  // WebAudio reliably audible in an iOS standalone PWA. The element is NOT left
+  // playing continuously — an idle MediaStream produces a faint background
+  // hiss/hum — so it is played just-in-time around each tone (see _wakeStream).
   _ensureStreamOut(){
     if(!this.ctx || this.dest) return;
     try{
@@ -2677,11 +2680,21 @@ const Sound = {
       this.dest = this.ctx.createMediaStreamDestination();
       this.streamEl = document.createElement('audio');
       this.streamEl.setAttribute('playsinline','');
-      this.streamEl.autoplay = true;
       this.streamEl.srcObject = this.dest.stream;
       document.body.appendChild(this.streamEl);
-      this.streamEl.play().catch(()=>{});
+      // Do not autoplay/keep playing — _wakeStream() drives it per tone.
     }catch(e){ this.dest = null; }
+  },
+
+  // Play the media-stream element just for the duration of a tone, then pause it
+  // so there is no continuous idle hum between cues.
+  _wakeStream(dur){
+    if(!this.streamEl) return;
+    try{ this.streamEl.play().catch(()=>{}); }catch(e){}
+    clearTimeout(this._streamPauseT);
+    this._streamPauseT = setTimeout(()=>{
+      try{ this.streamEl.pause(); }catch(e){}
+    }, Math.ceil((dur||0.2)*1000) + 120);
   },
 
   // Pick exactly ONE output so a tone is never heard twice. Prefer the
@@ -2697,6 +2710,9 @@ const Sound = {
   tone(freq,dur,vol,type){
     if(!this.enabled() || !this.ctx) return;
     if(this.ctx.state==='suspended') this.ctx.resume();
+    // Wake the media-stream output (if used) only for this tone, so there's no
+    // continuous background hum between cues.
+    if(this.dest) this._wakeStream(dur);
     const o=this.ctx.createOscillator(), g=this.ctx.createGain();
     o.frequency.value=freq; o.type=type||'square';
     o.connect(g);
