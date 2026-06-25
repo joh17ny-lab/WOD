@@ -2612,12 +2612,13 @@ function initNumWheel(id, commit){
 const Sound = {
   ctx:null, dest:null, streamEl:null, keepEl:null, silentEl:null, started:false, pending:[],
 
-  // Short silent WAV data URI used to hold an active media session warm so cues
-  // still output (incl. iOS standalone PWA / screen off). Built at load time as a
-  // valid 8kHz mono 16-bit PCM file with ~0.4s of real (silent) samples — a
-  // zero-length clip won't start a media session on iOS.
+  // Silent WAV data URI used to hold an active media session warm so cues still
+  // output (incl. iOS standalone PWA / screen off). Built at load time as a valid
+  // 8kHz mono 16-bit PCM file with several seconds of real (silent) samples — a
+  // zero-length clip won't start a media session on iOS, and a too-short looped
+  // clip can produce an audible seam "tick" every loop, so we use a longer clip.
   _silentWav:(function(){
-    const sr=8000, secs=0.4, n=Math.floor(sr*secs), dataLen=n*2, total=44+dataLen;
+    const sr=8000, secs=10, n=Math.floor(sr*secs), dataLen=n*2, total=44+dataLen;
     const b=new Uint8Array(total), dv=new DataView(b.buffer);
     const wr=(o,s)=>{ for(let i=0;i<s.length;i++) b[o+i]=s.charCodeAt(i); };
     wr(0,'RIFF'); dv.setUint32(4,36+dataLen,true); wr(8,'WAVE');
@@ -2665,7 +2666,7 @@ const Sound = {
     this.pending.forEach(id=>clearTimeout(id)); this.pending = [];
     clearTimeout(this._streamPauseT);
     try{ if(this.silentEl){ this.silentEl.pause(); this.silentEl.currentTime = 0; } }catch(e){}
-    try{ if(this.streamEl){ this.streamEl.pause(); } }catch(e){}
+    try{ if(this.streamEl){ this.streamEl.muted = true; } }catch(e){}
   },
 
   // Build a MediaStreamDestination fed into an <audio> element. Routing tones
@@ -2681,19 +2682,24 @@ const Sound = {
       this.streamEl = document.createElement('audio');
       this.streamEl.setAttribute('playsinline','');
       this.streamEl.srcObject = this.dest.stream;
+      // Keep the element playing (needed to hold the route open on iOS) but MUTED
+      // so the idle MediaStream produces no audible hiss/hum between cues. We
+      // briefly unmute around each tone (see _wakeStream).
+      this.streamEl.muted = true;
       document.body.appendChild(this.streamEl);
-      // Do not autoplay/keep playing — _wakeStream() drives it per tone.
+      this.streamEl.play().catch(()=>{});
     }catch(e){ this.dest = null; }
   },
 
-  // Play the media-stream element just for the duration of a tone, then pause it
-  // so there is no continuous idle hum between cues.
+  // Unmute the media-stream element just for the duration of a tone, then mute it
+  // again so there is no continuous idle hum between cues. Muting (rather than
+  // pausing) reliably silences a MediaStream-backed element on iOS.
   _wakeStream(dur){
     if(!this.streamEl) return;
-    try{ this.streamEl.play().catch(()=>{}); }catch(e){}
+    try{ this.streamEl.muted = false; this.streamEl.play().catch(()=>{}); }catch(e){}
     clearTimeout(this._streamPauseT);
     this._streamPauseT = setTimeout(()=>{
-      try{ this.streamEl.pause(); }catch(e){}
+      try{ this.streamEl.muted = true; }catch(e){}
     }, Math.ceil((dur||0.2)*1000) + 120);
   },
 
