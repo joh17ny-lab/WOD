@@ -81,6 +81,13 @@ version onto an installed phone, bump the cache name in `sw.js`
   iOS may pause audio/JS when the app is backgrounded or the phone is locked —
   keep the screen on during a workout for reliable beeps. (Vibration support in
   Safari is limited and may not fire on all devices.)
+- **Play your own music during a workout:** by default the timer mixes with other
+  apps, so your music app (Spotify / Apple Music / etc.) keeps playing while the
+  timer runs — start your music first, then start the timer. The trade-off on
+  iPhone is that mixing audio follows the **mute switch**, so cues are silent if
+  the phone is muted; the on-screen **flash** and **vibration** cues still fire.
+  Prefer loud cues that ignore the mute switch (and don't mind your music
+  pausing)? Turn **Settings → Timer cues → "Let my music keep playing"** off.
 - No App Store listing, no push notifications.
 - **Device sync:** browsers can't read Apple Health or Garmin Connect directly,
   so the PWA supports **file import** (`.tcx` / `.gpx`) and manual entry only.

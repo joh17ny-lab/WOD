@@ -87,6 +87,9 @@ const Settings = {
   KEY:'wodbook.settings.v1',
   _cache:null,
   defaults:{ sound:true, vibrate:true, flash:true, keepAwake:true, leadIn:10, units:'lb',
+             // When true, the timer mixes with (does NOT interrupt) other apps'
+             // audio so your music keeps playing while the workout runs.
+             mixWithMusic:true,
              name:'', bodyweight:null, dob:'', box:'',
              // Profile for the calorie calculator
              sex:'male', heightIn:null, activity:'moderate', dietGoal:'maintain',
@@ -1472,7 +1475,9 @@ function settingsSheet(){
       <div class="toggle" style="margin-bottom:14px"><span>Sound</span><button class="${sw(s.sound!==false)}" id="st_sound"></button></div>
       <div class="toggle" style="margin-bottom:14px"><span>Vibration</span><button class="${sw(s.vibrate!==false)}" id="st_vib"></button></div>
       <div class="toggle" style="margin-bottom:14px"><span>Screen flash</span><button class="${sw(s.flash!==false)}" id="st_flash"></button></div>
-      <div class="toggle"><span>Keep screen awake</span><button class="${sw(s.keepAwake!==false)}" id="st_wake"></button></div>
+      <div class="toggle" style="margin-bottom:14px"><span>Keep screen awake</span><button class="${sw(s.keepAwake!==false)}" id="st_wake"></button></div>
+      <div class="toggle"><span>Let my music keep playing</span><button class="${sw(s.mixWithMusic!==false)}" id="st_mix"></button></div>
+      <div class="tag" style="margin-top:8px">On: your music app keeps playing while the timer runs (cues mix in; on iPhone they follow the mute switch). Off: louder cues that ignore the mute switch but pause other audio.</div>
     </div>
 
     <div class="sectiontitle">Defaults</div>
@@ -1515,6 +1520,9 @@ function settingsSheet(){
   `, ()=>{
     const toggle=(id,key)=>{ $(id).onclick=()=>{ const cur=Settings.get()[key]!==false; Settings.set({[key]:!cur}); $(id).classList.toggle('on',!cur); }; };
     toggle('st_sound','sound'); toggle('st_vib','vibrate'); toggle('st_flash','flash'); toggle('st_wake','keepAwake');
+    // Apply the audio-session category change immediately when toggled.
+    toggle('st_mix','mixWithMusic');
+    $('st_mix').addEventListener('click', ()=>{ try{ Sound._setPlaybackSession(); }catch(e){} });
     $('st_name').oninput = ()=> Settings.set({name:$('st_name').value.trim()});
     $('st_box').oninput = ()=> Settings.set({box:$('st_box').value.trim()});
     $('st_bw').oninput = ()=>{ const v=parseFloat($('st_bw').value); Settings.set({bodyweight: isNaN(v)?null:v}); };
@@ -2634,13 +2642,23 @@ const Sound = {
 
   // Arm the audio session on a user gesture (Start). Keepalive runs ONLY
   // while the timer is active, and stop() tears it down so nothing lingers.
-  // Put the iOS audio session into the "playback" category as EARLY as possible.
-  // In a standalone (home-screen) PWA the session otherwise defaults to an
-  // ambient category that is silenced by the hardware mute switch and frequently
-  // outputs nothing for WebAudio — this is the main reason "no sound in
-  // standalone mode" happens. Safe no-op where unsupported.
+  // Choose the iOS audio session category.
+  //
+  // - "playback"  : exclusive media route. Loud + survives the mute switch, but
+  //                 INTERRUPTS other apps' audio (your Spotify/Apple Music stops).
+  // - "ambient"   : mixes with other apps (music keeps playing), but on iOS it
+  //                 obeys the hardware mute switch.
+  //
+  // When the user opts to keep their music playing (mixWithMusic, the default) we
+  // use "ambient" so external audio is NOT interrupted. Otherwise we fall back to
+  // the old exclusive "playback" route (max-volume cues, ignores mute switch).
+  _wantsMix(){ return Settings.get().mixWithMusic !== false; },
   _setPlaybackSession(){
-    try{ if(navigator.audioSession){ navigator.audioSession.type='playback'; } }catch(e){}
+    try{
+      if(navigator.audioSession){
+        navigator.audioSession.type = this._wantsMix() ? 'ambient' : 'playback';
+      }
+    }catch(e){}
   },
 
   arm(){
@@ -2687,7 +2705,10 @@ const Sound = {
       // briefly unmute around each tone (see _wakeStream).
       this.streamEl.muted = true;
       document.body.appendChild(this.streamEl);
-      this.streamEl.play().catch(()=>{});
+      // In mix-with-music mode, don't keep the element continuously playing (that
+      // can take audio focus on iOS); it is woken just-in-time around each tone
+      // in _wakeStream(). In exclusive mode, start it now to hold the route open.
+      if(!this._wantsMix()) this.streamEl.play().catch(()=>{});
     }catch(e){ this.dest = null; }
   },
 
@@ -2766,6 +2787,14 @@ const Sound = {
   // MUTED (not 0.01 volume) so it never competes with cues, while still keeping
   // the media session warm in standalone mode.
   _startKeepalive(){
+    // In mix-with-music mode, do NOT hold a looping keepalive clip — even a muted
+    // looping element can take audio focus on iOS and silence other apps. Tear
+    // down any existing keepalive so external music is never interrupted. Cues
+    // still fire via the just-in-time media-stream wake around each tone.
+    if(this._wantsMix()){
+      try{ if(this.silentEl){ this.silentEl.pause(); } }catch(e){}
+      return;
+    }
     if(!this.silentEl){
       try{
         this.silentEl = document.createElement('audio');
